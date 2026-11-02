@@ -52,18 +52,10 @@ def responder() -> tuple[FakeLlm, dict[str, list[Request]]]:
     return FakeLlm(reply), seen
 
 
-def test_depth_zero_runs_only_the_starting_narrator() -> None:
+def test_expands_until_no_narrator_is_pending() -> None:
     tree = Tree.new("Alex Rivera's life.")
     llm, seen = responder()
-    asyncio.run(expand(tree, "n_root", 0, llm, RunLog()))
-    assert set(seen) == {"n_root"}
-    assert tree.pending_narrators() == ["n_company"]
-
-
-def test_depth_expands_narrator_children_level_by_level() -> None:
-    tree = Tree.new("Alex Rivera's life.")
-    llm, seen = responder()
-    asyncio.run(expand(tree, "n_root", 2, llm, RunLog()))
+    asyncio.run(expand(tree, "n_root", llm, RunLog()))
     assert set(seen) == {"n_root", "n_company", "n_ops", "n_sales"}
     assert tree.pending_narrators() == []
     assert tree.node("n_ops").children == ["n_morgan"]
@@ -73,18 +65,10 @@ def test_depth_expands_narrator_children_level_by_level() -> None:
     )
 
 
-def test_no_depth_expands_until_no_narrator_is_pending() -> None:
-    tree = Tree.new("Alex Rivera's life.")
-    llm, seen = responder()
-    asyncio.run(expand(tree, "n_root", None, llm, RunLog()))
-    assert set(seen) == {"n_root", "n_company", "n_ops", "n_sales"}
-    assert tree.pending_narrators() == []
-
-
 def test_a_child_sees_only_its_own_prompt_and_brief() -> None:
     tree = Tree.new("Alex Rivera's life.")
     llm, seen = responder()
-    asyncio.run(expand(tree, "n_root", 2, llm, RunLog()))
+    asyncio.run(expand(tree, "n_root", llm, RunLog()))
     company = str(seen["n_company"][0].messages)
     assert "PROMPT OF n_company" in company and "BRIEF OF n_company" in company
     assert ROOT_STORY not in company and "Alex Rivera's life." not in company
@@ -99,7 +83,7 @@ def test_children_of_a_failed_narrator_stay_pending() -> None:
     script = turn(ROOT_STORY, [child("n_company", "narrator", "Lumen Metrics")])
     cut = LlmReply(content=[], stop_reason="refusal")
     llm = FakeLlm([script[0], cut])
-    asyncio.run(expand(tree, "n_root", 3, llm, RunLog()))
+    asyncio.run(expand(tree, "n_root", llm, RunLog()))
     assert tree.node("n_root").status == "failed"
     assert tree.pending_narrators() == ["n_company"]
 
@@ -113,7 +97,7 @@ def test_on_change_saves_after_each_narrator_and_tree_round_trips(tmp_path: Path
         saves.append(len(tree.nodes))
         tree.save(tmp_path / "tree.json")
 
-    asyncio.run(expand(tree, "n_root", 2, llm, RunLog(), on_change=save))
+    asyncio.run(expand(tree, "n_root", llm, RunLog(), on_change=save))
     assert len(saves) == 4
     assert Tree.load(tmp_path / "tree.json") == tree
 
@@ -121,7 +105,7 @@ def test_on_change_saves_after_each_narrator_and_tree_round_trips(tmp_path: Path
 def test_render_shows_every_node_in_tree_order() -> None:
     tree = Tree.new("Alex Rivera's life.")
     llm, _ = responder()
-    asyncio.run(expand(tree, "n_root", 2, llm, RunLog()))
+    asyncio.run(expand(tree, "n_root", llm, RunLog()))
     text = render(tree)
     order = [
         text.index(f"`{n}`")

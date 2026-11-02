@@ -121,13 +121,12 @@ uv sync
 uv run pytest -q                                   # tests, with a scripted fake model
 uv run --env-file .env worldgen narrate --prompt-file TARGET_EXAMPLE.md --out worlds/lumen/story
 uv run --env-file .env worldgen narrate --prompt "The sales department of ..." --brief "What the company is ..." --out worlds/sales
-uv run --env-file .env worldgen narrate --prompt "..." --out worlds/x --depth 0 --policy child_roles=any_group
-uv run --env-file .env worldgen expand worlds/x n_sales   # continue from any pending narrator
+uv run --env-file .env worldgen narrate --prompt "..." --out worlds/x --policy child_roles=any_group
 ```
 
-The narrators decide how deep the tree goes: a run continues until no narrator is pending. `--depth N` stops it early, and `worldgen expand` picks it up later. Which children become narrators is policy `child_roles`: `inside_parts` (default) keeps every outside party an actor, and `any_group` lets a customer, vendor or household with several people who act become a narrator too.
+The narrators decide how deep the tree goes: a run continues until no narrator is pending. A narrator whose parent fails never runs, and the run summary names it. Which children become narrators is policy `child_roles`: `inside_parts` (default) keeps every outside party an actor, and `any_group` lets a customer, vendor or household with several people who act become a narrator too.
 
-Each output directory holds `tree.json` (every node's prompt, brief and story), `story.md` (the same, to read) and `log.jsonl` (every model reply and tool call). Choose a provider with `--provider` and optionally override its default model with `--model`. Both flags work with `narrate` and `expand`.
+Each output directory holds `tree.json` (every node's prompt, brief and story), `story.md` (the same, to read) and `log.jsonl` (every model reply and tool call). Choose a provider with `--provider` and optionally override its default model with `--model`. Both are options of `narrate`.
 
 | Provider | Default model | Environment variable |
 | --- | --- | --- |

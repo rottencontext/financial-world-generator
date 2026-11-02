@@ -7,6 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from worldgen import cli
+from worldgen.llm.base import LlmReply
 from worldgen.llm.chat_completions import ChatCompletionsLlm
 from worldgen.llm.fake import FakeLlm, text_reply, tool_reply
 from worldgen.llm.settings import API_KEYS, LlmSettings
@@ -45,42 +46,36 @@ ROOT_TURN = [
     text_reply(),
 ]
 SALES_TURN = [tool_reply(("tell_story", {"story": "Sales story."})), text_reply()]
+# The root spawns and briefs n_sales, then its next call is refused: the root fails and
+# n_sales is left pending.
+ROOT_FAILS = [ROOT_TURN[0], LlmReply(content=[], stop_reason="refusal")]
 
 
-def test_narrate_then_expand(tmp_path: Path, fake_llm: list[FakeLlm]) -> None:
-    out = tmp_path / "story"
-    fake_llm.append(scripted(*ROOT_TURN))
-    result = runner.invoke(
-        cli.app, ["narrate", "--prompt", "A SaaS startup.", "--out", str(out), "--depth", "0"]
-    )
-    assert result.exit_code == 0, result.output
-    assert "Pending narrators: n_sales" in result.output
-    assert "n_root  Root narrator  [told] (story 3 words, 1 children)" in result.output
-    assert (out / "story.md").read_text().startswith("# Root narrator: story tree")
-    kinds = [json.loads(line)["kind"] for line in (out / "log.jsonl").read_text().splitlines()]
-    assert kinds[0] == "run_started" and kinds[-1] == "run_finished"
-
-    fake_llm.append(scripted(*SALES_TURN))
-    result = runner.invoke(cli.app, ["expand", str(out), "n_sales"])
-    assert result.exit_code == 0, result.output
-    assert Tree.load(out / "tree.json").node("n_sales").status == "told"
-
-    result = runner.invoke(cli.app, ["expand", str(out)])
-    assert result.exit_code == 0 and "No pending narrators" in result.output
-
-
-def test_narrate_without_depth_goes_until_no_narrator_is_pending(
-    tmp_path: Path, fake_llm: list[FakeLlm]
-) -> None:
+def test_narrate_goes_until_no_narrator_is_pending(tmp_path: Path, fake_llm: list[FakeLlm]) -> None:
     out = tmp_path / "story"
     fake_llm.append(scripted(*ROOT_TURN, *SALES_TURN))
     result = runner.invoke(cli.app, ["narrate", "--prompt", "A SaaS startup.", "--out", str(out)])
     assert result.exit_code == 0, result.output
-    assert "every level" in result.output and "Pending narrators" not in result.output
+    assert "Narrating n_root." in result.output and "never ran" not in result.output
+    assert "n_root  Root narrator  [told] (story 3 words, 1 children)" in result.output
     assert Tree.load(out / "tree.json").node("n_sales").status == "told"
-    started = json.loads((out / "log.jsonl").read_text().splitlines()[0])
-    assert started["depth"] is None
-    assert started["effort"] == "low"
+    assert (out / "story.md").read_text().startswith("# Root narrator: story tree")
+    lines = (out / "log.jsonl").read_text().splitlines()
+    kinds = [json.loads(line)["kind"] for line in lines]
+    assert kinds[0] == "run_started" and kinds[-1] == "run_finished"
+    assert json.loads(lines[0])["effort"] == "low"
+
+
+def test_narrate_reports_narrators_left_pending_by_a_failed_parent(
+    tmp_path: Path, fake_llm: list[FakeLlm]
+) -> None:
+    out = tmp_path / "story"
+    fake_llm.append(scripted(*ROOT_FAILS))
+    result = runner.invoke(cli.app, ["narrate", "--prompt", "A SaaS startup.", "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    assert "! n_root failed: the model refused" in result.output
+    assert "Narrators that never ran, because a narrator above failed: n_sales." in result.output
+    assert Tree.load(out / "tree.json").node("n_sales").status == "pending"
 
 
 def test_narrate_reads_prompt_and_brief_files_and_policies(
@@ -129,18 +124,12 @@ def test_narrate_rejects_bad_input(tmp_path: Path, fake_llm: list[FakeLlm]) -> N
     )
 
 
-def test_narrate_refuses_to_overwrite_and_expand_checks_the_node(
-    tmp_path: Path, fake_llm: list[FakeLlm]
-) -> None:
+def test_narrate_refuses_to_overwrite_a_tree(tmp_path: Path, fake_llm: list[FakeLlm]) -> None:
     out = tmp_path / "s"
-    fake_llm.append(scripted(*ROOT_TURN))
-    runner.invoke(cli.app, ["narrate", "--prompt", "x", "--out", str(out), "--depth", "0"])
+    fake_llm.append(scripted(*ROOT_TURN, *SALES_TURN))
+    runner.invoke(cli.app, ["narrate", "--prompt", "x", "--out", str(out)])
     again = runner.invoke(cli.app, ["narrate", "--prompt", "x", "--out", str(out)])
     assert again.exit_code != 0 and "already holds a tree" in again.output
-    wrong = runner.invoke(cli.app, ["expand", str(out), "n_root"])
-    assert wrong.exit_code != 0 and "Pending: n_sales" in wrong.output
-    missing = runner.invoke(cli.app, ["expand", str(tmp_path / "nowhere")])
-    assert missing.exit_code != 0
 
 
 def test_missing_credentials_exit_with_a_message(
@@ -153,7 +142,7 @@ def test_missing_credentials_exit_with_a_message(
     assert result.exit_code == 1 and "No model credentials" in result.output
 
 
-def test_openrouter_narrates_and_expands_through_real_adapter(
+def test_openrouter_narrates_through_real_adapter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from worldgen.llm import factory
@@ -176,7 +165,7 @@ def test_openrouter_narrates_and_expands_through_real_adapter(
     def handle(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         requests.append(body)
-        assert body["max_tokens"] == (2048 if len(requests) <= 2 else 1024)
+        assert body["max_tokens"] == 2048
         if len(requests) % 2:
             message, finish = tool_message, "tool_calls"
         else:
@@ -214,8 +203,6 @@ def test_openrouter_narrates_and_expands_through_real_adapter(
             provider,
             "--model",
             "test-model",
-            "--depth",
-            "0",
             "--max-tokens",
             "2048",
         ],
@@ -228,24 +215,4 @@ def test_openrouter_narrates_and_expands_through_real_adapter(
     assert "Tokens in: 20, cached: 0, out: 10" in result.output
     assert "test-key" not in (out / "log.jsonl").read_text()
     assert json.loads((out / "log.jsonl").read_text().splitlines()[0])["max_tokens"] == 2048
-
-    tree.node(tree.root).status = "pending"
-    tree.save(out / "tree.json")
-    result = runner.invoke(
-        cli.app,
-        [
-            "expand",
-            str(out),
-            "--provider",
-            provider,
-            "--model",
-            "test-model",
-            "--depth",
-            "0",
-            "--max-tokens",
-            "1024",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert Tree.load(out / "tree.json").node(tree.root).status == "told"
-    assert len(requests) == 4
+    assert len(requests) == 2

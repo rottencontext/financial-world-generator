@@ -1,8 +1,6 @@
 """worldgen command line.
 
 uv run --env-file .env worldgen narrate --prompt-file TARGET_EXAMPLE.md --out worlds/lumen/story
-uv run --env-file .env worldgen narrate --prompt "..." --out worlds/x --depth 0   # root only
-uv run --env-file .env worldgen expand worlds/x n_sales
 """
 
 import asyncio
@@ -28,13 +26,16 @@ app = typer.Typer(
     help="worldgen: generate financial worlds with LLM agents.",
 )
 
+
+@app.callback()
+def _commands() -> None:
+    """Keeps narrate a named subcommand while it is the only one."""
+
+
 ProviderOpt = Annotated[
     Provider | None,
     typer.Option(
-        help=(
-            "Model provider. Auto-detects credentials in order: "
-            "anthropic, deepseek, openrouter."
-        )
+        help=("Model provider. Auto-detects credentials in order: anthropic, deepseek, openrouter.")
     ),
 ]
 ModelOpt = Annotated[
@@ -44,16 +45,6 @@ ModelOpt = Annotated[
 EffortOpt = Annotated[
     Effort,
     typer.Option(help="How hard the model thinks. OpenRouter maps xhigh/max to high."),
-]
-DepthOpt = Annotated[
-    int | None,
-    typer.Option(
-        min=0,
-        help=(
-            "Stop after this many narrator levels below the starting one (0: only that one). "
-            "Default: no limit; the narrators decide how deep the tree goes."
-        ),
-    ),
 ]
 PolicyOpt = Annotated[
     list[str] | None,
@@ -81,7 +72,6 @@ def narrate(
         Path | None, typer.Option(exists=True, dir_okay=False, help="The brief, read from a file.")
     ] = None,
     name: Annotated[str, typer.Option(help="The starting narrator's name.")] = "Root narrator",
-    depth: DepthOpt = None,
     provider: ProviderOpt = None,
     model: Annotated[str | None, ModelOpt] = None,
     effort: EffortOpt = DEFAULT_EFFORT,
@@ -89,85 +79,25 @@ def narrate(
     max_steps: MaxStepsOpt = 30,
     max_tokens: MaxTokensOpt = None,
 ) -> None:
-    """Start a new story tree: one narrator expands a prompt, then optionally its children."""
+    """Start a new story tree: one narrator expands a prompt, then every narrator below it."""
     prompt_text = _text(prompt, prompt_file, "prompt")
     if prompt_text is None:
         raise typer.BadParameter("give --prompt or --prompt-file")
     if (out / "tree.json").exists():
-        raise typer.BadParameter(f"{out} already holds a tree; continue it with `worldgen expand`")
+        raise typer.BadParameter(f"{out} already holds a tree; choose a new --out directory")
     out.mkdir(parents=True, exist_ok=True)
     tree = Tree.new(prompt_text, _text(brief, brief_file, "brief"), name)
-    _run(
-        tree,
-        [tree.root],
-        depth,
-        out,
-        provider,
-        model,
-        effort,
-        policy,
-        max_steps,
-        "narrate",
-        max_tokens,
-    )
-
-
-@app.command()
-def expand(
-    directory: Annotated[Path, typer.Argument(help="A directory written by `worldgen narrate`.")],
-    node: Annotated[
-        str | None, typer.Argument(help="The pending narrator to expand. Default: every one.")
-    ] = None,
-    depth: DepthOpt = None,
-    provider: ProviderOpt = None,
-    model: Annotated[str | None, ModelOpt] = None,
-    effort: EffortOpt = DEFAULT_EFFORT,
-    policy: PolicyOpt = None,
-    max_steps: MaxStepsOpt = 30,
-    max_tokens: MaxTokensOpt = None,
-) -> None:
-    """Continue a story tree from its pending narrators."""
-    path = directory / "tree.json"
-    if not path.exists():
-        raise typer.BadParameter(f"no tree.json in {directory}")
-    tree = Tree.load(path)
-    if node is None:
-        targets = tree.pending_narrators()
-        if not targets:
-            typer.echo("No pending narrators: every narrator in this tree has taken its turn.")
-            raise typer.Exit()
-    else:
-        found = tree.nodes.get(node)
-        if found is None or found.role != "narrator" or found.status != "pending":
-            pending = ", ".join(tree.pending_narrators()) or "none"
-            raise typer.BadParameter(f"{node} is not a pending narrator. Pending: {pending}")
-        targets = [node]
-    _run(
-        tree,
-        targets,
-        depth,
-        directory,
-        provider,
-        model,
-        effort,
-        policy,
-        max_steps,
-        "expand",
-        max_tokens,
-    )
+    _run(tree, out, provider, model, effort, policy, max_steps, max_tokens)
 
 
 def _run(
     tree: Tree,
-    targets: list[str],
-    depth: int | None,
     out: Path,
     provider: Provider | None,
     model: str | None,
     effort: Effort,
     policy: list[str] | None,
     max_steps: int,
-    command: str,
     max_tokens: int | None = None,
 ) -> None:
     policies = _policies(policy or [])
@@ -178,19 +108,14 @@ def _run(
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(1) from error
     log = RunLog(out / "log.jsonl")
-    start = len(log.entries)
     log.write(
         "run_started",
-        command=command,
-        targets=targets,
-        depth=depth,
         llm=llm.name,
         effort=effort,
         max_tokens=settings.max_tokens,
         policies=policies.model_dump(),
     )
-    levels = "every level" if depth is None else f"depth {depth}"
-    typer.echo(f"Using {llm.name}, effort {effort}. Narrating {', '.join(targets)} ({levels}).")
+    typer.echo(f"Using {llm.name}, effort {effort}. Narrating {tree.root}.")
 
     def save() -> None:
         tree.save(out / "tree.json")
@@ -198,15 +123,10 @@ def _run(
 
     save()
 
-    async def go() -> None:
-        await asyncio.gather(
-            *(expand_tree(tree, t, depth, llm, log, policies, max_steps, save) for t in targets)
-        )
-
-    asyncio.run(go())
-    log.write("run_finished", command=command)
+    asyncio.run(expand_tree(tree, tree.root, llm, log, policies, max_steps, save))
+    log.write("run_finished")
     save()
-    _summary(tree, log.entries[start:], out)
+    _summary(tree, log.entries, out)
 
 
 def _summary(tree: Tree, entries: list[dict[str, Any]], out: Path) -> None:
@@ -229,7 +149,7 @@ def _summary(tree: Tree, entries: list[dict[str, Any]], out: Path) -> None:
     pending = tree.pending_narrators()
     if pending:
         typer.echo(
-            f"Pending narrators: {', '.join(pending)}. Continue with: worldgen expand {out} [NODE]"
+            f"Narrators that never ran, because a narrator above failed: {', '.join(pending)}."
         )
     typer.echo(f"Wrote {out / 'tree.json'}, {out / 'story.md'} and {out / 'log.jsonl'}.")
 
