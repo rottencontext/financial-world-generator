@@ -9,12 +9,10 @@ import pytest
 from worldgen.llm.anthropic_llm import (
     DEEPSEEK_BASE_URL,
     AnthropicLlm,
-    LlmSettings,
     make_client,
-    pick_provider,
-    settings_for,
 )
 from worldgen.llm.base import LlmConfigError, LlmError
+from worldgen.llm.settings import LlmSettings, pick_provider, settings_for
 
 TOOLS = [{"name": "tell_story", "description": "d", "input_schema": {"type": "object"}}]
 MESSAGES = [{"role": "user", "content": "hi"}]
@@ -63,7 +61,7 @@ class Messages:
             ],
             stop_reason="tool_use",
             usage=Block({"input_tokens": 10, "output_tokens": 5}),
-            model="claude-opus-5-5",
+            model="claude-haiku-5-5",
             stop_details=None,
         )
         return Stream(message, self.error)
@@ -81,13 +79,13 @@ def complete(llm: AnthropicLlm) -> Any:
 
 def test_anthropic_requests_use_claude_features_on_the_beta_stream() -> None:
     client = Client()
-    llm = AnthropicLlm(LlmSettings("anthropic", "claude-opus-5-5", "high"), client)  # type: ignore[arg-type]
+    llm = AnthropicLlm(LlmSettings("anthropic", "claude-haiku-5-5", "low"), client)  # type: ignore[arg-type]
     reply = complete(llm)
     assert client.messages.calls == []
     params = client.beta.messages.calls[0]
-    assert params["model"] == "claude-opus-5-5" and params["max_tokens"] == 64000
+    assert params["model"] == "claude-haiku-5-5" and params["max_tokens"] == 64000
     assert params["thinking"] == {"type": "adaptive", "display": "summarized"}
-    assert params["output_config"] == {"effort": "high"}
+    assert params["output_config"] == {"effort": "low"}
     assert params["cache_control"] == {"type": "ephemeral"}
     assert params["fallbacks"] == "default" and params["betas"] == [
         "server-side-fallback-2026-07-01"
@@ -96,17 +94,17 @@ def test_anthropic_requests_use_claude_features_on_the_beta_stream() -> None:
     assert TOOLS[0].get("eager_input_streaming") is None
     assert reply.tool_uses()[0]["input"] == {"story": "x"}
     assert reply.request_id == "req_1" and reply.usage == {"input_tokens": 10, "output_tokens": 5}
-    assert llm.name == "anthropic:claude-opus-5-5"
+    assert llm.name == "anthropic:claude-haiku-5-5"
 
 
 def test_deepseek_requests_carry_only_shared_fields_on_the_plain_stream() -> None:
     client = Client()
-    llm = AnthropicLlm(LlmSettings("deepseek", "deepseek-v4-pro", "high"), client)  # type: ignore[arg-type]
+    llm = AnthropicLlm(LlmSettings("deepseek", "deepseek-flash", "low"), client)  # type: ignore[arg-type]
     complete(llm)
     assert client.beta.messages.calls == []
     params = client.messages.calls[0]
     assert params["thinking"] == {"type": "enabled"}
-    assert params["output_config"] == {"effort": "high"}
+    assert params["output_config"] == {"effort": "low"}
     for claude_only in ("cache_control", "fallbacks", "betas"):
         assert claude_only not in params
     assert params["tools"] == TOOLS
@@ -115,7 +113,7 @@ def test_deepseek_requests_carry_only_shared_fields_on_the_plain_stream() -> Non
 def test_api_errors_become_llm_errors() -> None:
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     error = anthropic.APIConnectionError(request=request)
-    llm = AnthropicLlm(LlmSettings("deepseek", "deepseek-v4-pro"), Client(error))  # type: ignore[arg-type]
+    llm = AnthropicLlm(LlmSettings("deepseek", "deepseek-flash"), Client(error))  # type: ignore[arg-type]
     with pytest.raises(LlmError, match="APIConnectionError"):
         complete(llm)
 
@@ -128,9 +126,10 @@ def test_pick_provider_prefers_anthropic_then_deepseek() -> None:
 
 
 def test_settings_default_models() -> None:
-    assert settings_for(env={"DEEPSEEK_API_KEY": "d"}).model == "deepseek-v4-pro"
-    assert settings_for("anthropic", env={}).model == "claude-opus-5-5"
-    assert settings_for("deepseek", "deepseek-flash", "low", env={}).effort == "low"
+    assert settings_for(env={"DEEPSEEK_API_KEY": "d"}).model == "deepseek-flash"
+    assert settings_for("anthropic", env={}).model == "claude-haiku-5-5"
+    assert settings_for("anthropic", env={}).effort == "low"
+    assert settings_for("deepseek", "deepseek-v4-pro", "high", env={}).effort == "high"
 
 
 def test_make_client_points_deepseek_at_its_anthropic_endpoint() -> None:

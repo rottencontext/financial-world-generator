@@ -146,7 +146,7 @@ async def judge(
     rubric: Rubric,
     focus: str | None = None,
     runs: int = 1,
-    effort: str = "high",
+    effort: str = "low",
     on_done: Callable[[RunResult | Failure], None] | None = None,
 ) -> Judgment:
     system = build_system(rubric)

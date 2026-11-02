@@ -15,7 +15,14 @@ import typer
 
 from llm_judge.inputs import Document, HtmlMode, InputError, load
 from llm_judge.judge import Failure, RunResult, judge
-from llm_judge.llm import AnthropicLlm, Effort, LlmConfigError, Provider, settings_for
+from llm_judge.llm import (
+    DEFAULT_EFFORT,
+    Effort,
+    LlmConfigError,
+    Provider,
+    create_llm,
+    settings_for,
+)
 from llm_judge.prompt import build_system, build_user
 from llm_judge.report import markdown, terminal_summary
 from llm_judge.rubric import RubricError, builtin_names, load_rubric
@@ -83,13 +90,22 @@ def compare(
     ] = None,
     provider: Annotated[
         Provider | None,
-        typer.Option(help="Default: anthropic if ANTHROPIC_API_KEY is set, else deepseek."),
+        typer.Option(
+            help=(
+                "Model provider. Auto-detects credentials in order: "
+                "anthropic, deepseek, openrouter."
+            )
+        ),
     ] = None,
     model: Annotated[
         str | None,
-        typer.Option(help="Default: claude-opus-5-5 (anthropic), deepseek-v4-pro (deepseek)."),
+        typer.Option(help="Model id. Uses the selected provider's default when omitted."),
     ] = None,
-    effort: Annotated[Effort, typer.Option(help="How hard the judge thinks.")] = "high",
+    effort: Annotated[Effort, typer.Option(help="How hard the judge thinks.")] = DEFAULT_EFFORT,
+    max_tokens: Annotated[
+        int | None,
+        typer.Option(min=1, help="Output token limit per model call. Default: 64000."),
+    ] = None,
     html: HtmlOpt = "auto",
     include: IncludeOpt = None,
     max_input_tokens: Annotated[
@@ -132,7 +148,7 @@ def compare(
         return
 
     try:
-        llm = AnthropicLlm(settings_for(provider, model, effort))
+        llm = create_llm(settings_for(provider, model, effort, max_tokens=max_tokens))
     except LlmConfigError as error:
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(1) from error

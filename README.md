@@ -127,7 +127,19 @@ uv run --env-file .env worldgen expand worlds/x n_sales   # continue from any pe
 
 The narrators decide how deep the tree goes: a run continues until no narrator is pending. `--depth N` stops it early, and `worldgen expand` picks it up later. Which children become narrators is policy `child_roles`: `inside_parts` (default) keeps every outside party an actor, and `any_group` lets a customer, vendor or household with several people who act become a narrator too.
 
-Each output directory holds `tree.json` (every node's prompt, brief and story), `story.md` (the same, to read) and `log.jsonl` (every model reply and tool call). The model is Claude (`claude-opus-5-5`) when `ANTHROPIC_API_KEY` is set, otherwise DeepSeek's Anthropic-compatible API when `DEEPSEEK_API_KEY` is set; `--provider` and `--model` override that.
+Each output directory holds `tree.json` (every node's prompt, brief and story), `story.md` (the same, to read) and `log.jsonl` (every model reply and tool call). Choose a provider with `--provider` and optionally override its default model with `--model`. Both flags work with `narrate` and `expand`.
+
+| Provider | Default model | Environment variable |
+| --- | --- | --- |
+| `anthropic` | `claude-haiku-5-5` | `ANTHROPIC_API_KEY` |
+| `deepseek` | `deepseek-flash` (DeepSeek-V4.1-Flash) | `DEEPSEEK_API_KEY` |
+| `openrouter` | `deepseek/deepseek-v4.1-flash` (any OpenRouter model id works with `--model`) | `OPENROUTER_API_KEY` |
+
+When `--provider` is omitted, the first configured key wins in the table's order. `--effort` defaults to `low`, and `--max-tokens` (the output limit per model call) defaults to 64000.
+
+```bash
+uv run --env-file .env worldgen narrate --prompt-file TARGET_EXAMPLE.md --out worlds/x --provider openrouter --model z-ai/glm-5.3-flash
+```
 
 ## Planned commands
 
@@ -145,4 +157,4 @@ uv run worldgen verify worlds/demo/runs/<run_id>                       # check t
 
 ## Tech stack
 
-Python 3.12, `pydantic` v2, `PyYAML`, `typer`, `jsonschema`, and the Anthropic Python SDK (default model `claude-opus-5-5`). Money is always `Decimal`. Tests use `pytest` and `hypothesis`, with fake model responses so they stay stable even though runs aren't deterministic.
+Python 3.12, `pydantic` v2, `PyYAML`, `typer`, `jsonschema`, the Anthropic Python SDK, and `httpx2` for Chat Completions providers. Money is always `Decimal`. Tests use `pytest` and `hypothesis`, with fake model responses and simulated HTTP transports so they stay stable even though runs aren't deterministic.

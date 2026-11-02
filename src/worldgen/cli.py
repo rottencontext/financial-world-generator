@@ -8,13 +8,14 @@ uv run --env-file .env worldgen expand worlds/x n_sales
 import asyncio
 from collections import Counter
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 import typer
 from pydantic import ValidationError
 
-from worldgen.llm.anthropic_llm import AnthropicLlm, Provider, settings_for
 from worldgen.llm.base import LlmConfigError
+from worldgen.llm.factory import create_llm
+from worldgen.llm.settings import DEFAULT_EFFORT, Effort, Provider, settings_for
 from worldgen.policies import Policies
 from worldgen.sinks.run_log import RunLog
 from worldgen.tree.expand import expand as expand_tree
@@ -27,21 +28,23 @@ app = typer.Typer(
     help="worldgen: generate financial worlds with LLM agents.",
 )
 
-Effort = Literal["low", "medium", "high", "xhigh", "max"]
-
 ProviderOpt = Annotated[
     Provider | None,
     typer.Option(
-        help="Model provider. Default: anthropic if ANTHROPIC_API_KEY is set, else deepseek."
+        help=(
+            "Model provider. Auto-detects credentials in order: "
+            "anthropic, deepseek, openrouter."
+        )
     ),
 ]
 ModelOpt = Annotated[
     str | None,
-    typer.Option(
-        help="Model id. Default: claude-opus-5-5 (anthropic), deepseek-v4-pro (deepseek)."
-    ),
+    typer.Option(help="Model id. Uses the selected provider's default when omitted (see README)."),
 ]
-EffortOpt = Annotated[Effort, typer.Option(help="How hard the model thinks.")]
+EffortOpt = Annotated[
+    Effort,
+    typer.Option(help="How hard the model thinks. OpenRouter maps xhigh/max to high."),
+]
 DepthOpt = Annotated[
     int | None,
     typer.Option(
@@ -57,6 +60,10 @@ PolicyOpt = Annotated[
     typer.Option("--policy", help="Switch a policy, as name=option. Repeatable."),
 ]
 MaxStepsOpt = Annotated[int, typer.Option(min=1, help="Model calls allowed per narrator turn.")]
+MaxTokensOpt = Annotated[
+    int | None,
+    typer.Option(min=1, help="Output token limit per model call. Default: 64000."),
+]
 
 
 @app.command()
@@ -76,10 +83,11 @@ def narrate(
     name: Annotated[str, typer.Option(help="The starting narrator's name.")] = "Root narrator",
     depth: DepthOpt = None,
     provider: ProviderOpt = None,
-    model: ModelOpt = None,
-    effort: EffortOpt = "high",
+    model: Annotated[str | None, ModelOpt] = None,
+    effort: EffortOpt = DEFAULT_EFFORT,
     policy: PolicyOpt = None,
     max_steps: MaxStepsOpt = 30,
+    max_tokens: MaxTokensOpt = None,
 ) -> None:
     """Start a new story tree: one narrator expands a prompt, then optionally its children."""
     prompt_text = _text(prompt, prompt_file, "prompt")
@@ -89,7 +97,19 @@ def narrate(
         raise typer.BadParameter(f"{out} already holds a tree; continue it with `worldgen expand`")
     out.mkdir(parents=True, exist_ok=True)
     tree = Tree.new(prompt_text, _text(brief, brief_file, "brief"), name)
-    _run(tree, [tree.root], depth, out, provider, model, effort, policy, max_steps, "narrate")
+    _run(
+        tree,
+        [tree.root],
+        depth,
+        out,
+        provider,
+        model,
+        effort,
+        policy,
+        max_steps,
+        "narrate",
+        max_tokens,
+    )
 
 
 @app.command()
@@ -100,10 +120,11 @@ def expand(
     ] = None,
     depth: DepthOpt = None,
     provider: ProviderOpt = None,
-    model: ModelOpt = None,
-    effort: EffortOpt = "high",
+    model: Annotated[str | None, ModelOpt] = None,
+    effort: EffortOpt = DEFAULT_EFFORT,
     policy: PolicyOpt = None,
     max_steps: MaxStepsOpt = 30,
+    max_tokens: MaxTokensOpt = None,
 ) -> None:
     """Continue a story tree from its pending narrators."""
     path = directory / "tree.json"
@@ -121,7 +142,19 @@ def expand(
             pending = ", ".join(tree.pending_narrators()) or "none"
             raise typer.BadParameter(f"{node} is not a pending narrator. Pending: {pending}")
         targets = [node]
-    _run(tree, targets, depth, directory, provider, model, effort, policy, max_steps, "expand")
+    _run(
+        tree,
+        targets,
+        depth,
+        directory,
+        provider,
+        model,
+        effort,
+        policy,
+        max_steps,
+        "expand",
+        max_tokens,
+    )
 
 
 def _run(
@@ -135,10 +168,12 @@ def _run(
     policy: list[str] | None,
     max_steps: int,
     command: str,
+    max_tokens: int | None = None,
 ) -> None:
     policies = _policies(policy or [])
     try:
-        llm = AnthropicLlm(settings_for(provider, model, effort))
+        settings = settings_for(provider, model, effort, max_tokens=max_tokens)
+        llm = create_llm(settings)
     except LlmConfigError as error:
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(1) from error
@@ -151,6 +186,7 @@ def _run(
         depth=depth,
         llm=llm.name,
         effort=effort,
+        max_tokens=settings.max_tokens,
         policies=policies.model_dump(),
     )
     levels = "every level" if depth is None else f"depth {depth}"

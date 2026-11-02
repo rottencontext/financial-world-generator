@@ -5,7 +5,7 @@ import pytest
 from typer.testing import CliRunner
 
 from llm_judge import cli
-from llm_judge.llm import Settings
+from llm_judge.llm import API_KEYS, Settings
 from llm_judge.rubric import load_rubric
 from tests.support import FakeLlm, verdict_json
 
@@ -28,9 +28,11 @@ def fake_llm(monkeypatch: pytest.MonkeyPatch, script: list[str | Exception]) -> 
         llm.name = f"{settings.provider}:{settings.model}"
         return llm
 
-    monkeypatch.setattr(cli, "AnthropicLlm", make)
+    monkeypatch.setattr(cli, "create_llm", make)
+    for names in API_KEYS.values():
+        for name in names:
+            monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "d")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     return llm
 
 
@@ -45,7 +47,8 @@ def test_compare_writes_verdict(
     assert result.exit_code == 0, result.output
     assert "Similarity 70/100 (runs 60–80)" in result.output
     verdict = json.loads((out / "verdict.json").read_text())
-    assert verdict["judge"] == "deepseek:deepseek-v4-pro"
+    assert verdict["judge"] == "deepseek:deepseek-flash"
+    assert verdict["effort"] == "low"
     assert verdict["candidate"]["files"] == ["story.json (json)"]
     report = (out / "verdict.md").read_text()
     assert "## Run 2" in report and "| Cast | 2 | 7 (runs 6–8) | 6, 8 |" in report
@@ -86,8 +89,9 @@ def test_bad_inputs(
     assert missing.exit_code == 1 and "does not exist" in missing.output
     rubric = runner.invoke(cli.app, ["compare", str(ref), str(cand), "--rubric", "nope"])
     assert rubric.exit_code == 1 and "no rubric" in rubric.output
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    for names in API_KEYS.values():
+        for name in names:
+            monkeypatch.delenv(name, raising=False)
     nokey = runner.invoke(cli.app, ["compare", str(ref), str(cand), "--out", str(tmp_path / "o")])
     assert nokey.exit_code == 1 and "No model credentials" in nokey.output
 

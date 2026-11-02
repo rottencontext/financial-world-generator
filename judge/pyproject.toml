@@ -5,6 +5,7 @@ description = "An LLM judge that scores how similar two outputs are, whatever th
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=2.0",
+    "httpx2>=2.16",
     "pydantic>=2.7",
     "pypdf>=5",
     "typer>=0.12",

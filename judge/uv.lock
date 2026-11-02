@@ -517,6 +517,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "httpx2" },
     { name = "pydantic" },
     { name = "pypdf" },
     { name = "typer" },
@@ -533,6 +534,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=2.0" },
+    { name = "httpx2", specifier = ">=2.16" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pypdf", specifier = ">=5" },
     { name = "typer", specifier = ">=0.12" },

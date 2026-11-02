@@ -1,7 +1,7 @@
 """The Llm interface: one model request in, one reply out.
 
-Content blocks and messages are plain dicts in Messages API shape, so a reply's content can be
-sent back as the next assistant message unchanged, and the test double needs no SDK objects.
+Content blocks use Messages API shape, so the engine and test doubles need no SDK objects.
+Adapters may attach an opaque provider_message for lossless continuation of their conversation.
 """
 
 from dataclasses import dataclass, field
@@ -11,7 +11,7 @@ Block = dict[str, Any]
 """One content block, such as {"type": "text", "text": "..."} or a tool_use block."""
 
 Message = dict[str, Any]
-"""One message: {"role": "user" | "assistant", "content": str | list[Block]}."""
+"""One message with role/content and an optional adapter-owned provider_message."""
 
 
 class LlmError(Exception):
@@ -30,6 +30,9 @@ class LlmReply:
     request_id: str | None = None
     model: str | None = None
     stop_details: dict[str, Any] | None = None
+    # Some providers require their original assistant message (including opaque reasoning
+    # signatures) on follow-up calls. Content above remains the engine's normalized view.
+    provider_message: Message | None = None
 
     def tool_uses(self) -> list[Block]:
         return [block for block in self.content if block.get("type") == "tool_use"]

@@ -79,7 +79,10 @@ class AgentLoop[C]:
                 usage=reply.usage,
                 content=reply.content,
             )
-            messages.append({"role": "assistant", "content": reply.content})
+            assistant: Message = {"role": "assistant", "content": reply.content}
+            if reply.provider_message is not None:
+                assistant["provider_message"] = reply.provider_message
+            messages.append(assistant)
             if reply.stop_reason == "refusal":
                 return self._end(
                     node_id, "failed", step, f"the model refused: {reply.stop_details}"

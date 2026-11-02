@@ -14,7 +14,7 @@ uv run --env-file ../.env judge compare REFERENCE CANDIDATE --rubric world
 
 - `REFERENCE` is what the candidate should resemble. `CANDIDATE` is the output being judged. Either can be a file or a directory.
 - Results go to a new folder in `runs/` (gitignored): `verdict.md` to read, `verdict.json` with everything, and `prompt.txt` with the exact prompt sent.
-- The judge uses Claude (`claude-opus-5-5`) when `ANTHROPIC_API_KEY` is set, else DeepSeek (`deepseek-v4-pro`) when `DEEPSEEK_API_KEY` is set. `--provider` and `--model` override this.
+- The provider is the first one with a key, in this order: `anthropic` (`claude-haiku-5-5`), `deepseek` (`deepseek-flash`), `openrouter` (`deepseek/deepseek-v4.1-flash`). `--provider`, `--model`, `--effort` (default `low`) and `--max-tokens` (default 64000) override this.
 
 Example: the Lumen dry-run page against a narrator story told from `TARGET_EXAMPLE.md`.
 
@@ -55,7 +55,7 @@ Other commands:
 | `--rubric general\|world\|PATH` | What "similar" means. Default `general`. See [Rubrics](#rubrics). |
 | `--focus "..."` | Judge only one part, e.g. `--focus "the day-0 world: company, cast, accounts, history"`. Use it when one output covers more stages than the other. |
 | `--runs N` | Independent judge runs, in parallel. The report gives the mean and the lowest and highest score. Use 3 or more when comparing harness versions. |
-| `--effort` | How hard the judge thinks: `low` to `max`. Default `high`. |
+| `--effort` | How hard the judge thinks: `low` to `max`. Default `low`. |
 | `--html auto\|rendered\|source` | How HTML is read. See below. |
 | `--include GLOB` | For a directory input, only the files that match. Repeatable. |
 | `--max-input-tokens N` | Refuse inputs estimated above N tokens together (default 400,000). Nothing is ever truncated. |
