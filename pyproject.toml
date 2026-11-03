@@ -4,9 +4,7 @@ version = "0.1.0"
 description = "A financial world generator: LLM agents simulate a business and institutions record what they do."
 requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=1.0",
     "httpx2>=2.16",
-    "pydantic>=2.7",
     "typer>=0.12",
 ]
 
