@@ -1,8 +1,8 @@
 # worldgen: a financial world generator
 
-`worldgen` creates realistic synthetic financial data. It simulates a business as a world of LLM agents (founders, employees, customers, vendors, banks) and records what they do the way real institutions would. The output is the raw exports a business would actually have: bank transactions, card transactions, payment processor charges and payouts, and payroll journal entries.
+`worldgen` creates realistic synthetic financial data. It simulates a business as a world of LLM agents (founders, employees, customers, vendors, banks) and records what they do the way real institutions would. The output is the records a business would actually have: bank transactions, card transactions, payment processor charges and payouts, and payroll entries.
 
-> **Status:** early build. The first agent, the narrator, is in `src/worldgen/`. [`stage_1.md`](stage_1.md) describes what is being built now: the world on its first day. The language for declaring institutions is checked on paper against two industries. See [Where we are](#where-we-are).
+> **Status:** early build. The runner generates a world from a prompt and simulates it day by day. The judge and the improvement loop are not built yet. [`stage_1.md`](stage_1.md) is the design. See [Where we are](#where-we-are).
 
 ## Why
 
@@ -14,148 +14,104 @@ Real financial data is private, and data generated from rules looks too clean. R
 - A customer pays late, short-pays, then sends a corrective wire.
 - The same merchant appears as `AMZN Mktp US*2K4L` one month and `Amazon.com` the next.
 
-You can't get this mess by inventing tidy journal entries and working backwards. `worldgen` builds data from the money's side instead. People and businesses make decisions, money moves through channels with real delays, and each institution records only what it would see. Every row traces back to something that happened in the world.
+You can't get this mess by inventing tidy journal entries and working backwards. `worldgen` builds data from the money's side instead. People and businesses make decisions, money moves through channels with real delays, and each institution records only what it would see.
 
 ## How it works
 
 ```
-main prompt  ("a B2B SaaS startup, 18 months, 5 staff ...")
+main prompt  (one business: "a one-room bike repair shop in Eugene, Oregon ...")
     |
-world builder builds the shared world on day 0: institutions, the cast, accounts, history
+generate: an LLM writes the world as code (world.py) and its agents (prompts.json)
     |
-narrator tree plans the storylines over it, casting people into each one
+dry run: the world's code runs every day with no agents; a crash goes back to the LLM to fix
     |
-world manifest  (institutions, people, castings, accounts, relationships, history, facts, stories, prompts)
+simulate, day by day:
+    the world's automated code runs (settlements, autopay, interest, statement closes)
+    the agents with something to do today act by calling other entities' tools
+    the world's code allows, rejects or delays each call
     |
-day-by-day simulation: every agent takes a turn, using tools
+judge (not built): did this make a real economy for this business?
     |
-institutions record what happened on their accounts
-    |
-JSON tables per institution  +  an event log explaining every row
+improve (not built): findings patch world.py or rewrite one agent's prompt, then run again
 ```
 
-**A world is one cast of agents, planned by a tree of narrators.**
-- **The world builder** reads the main prompt on day 0 and builds what every storyline shares: the institutions, every person and business the prompt names (each with the one agent that acts for it), their accounts, agreements and history, and a few facts everyone must know.
-- **Narrators** tell the story. The root narrator holds one person's life, for example the CEO's. Each narrator below it covers one part of that life: the company, the sales team, a household. Narrators cast people from the shared world into their storyline, brief them, read their reports, and add or drop people as the story needs (a hire, a new customer, a dropped vendor). Sibling narrators never see each other's plans, so they decide independently, but they all see the same world.
-- **Actors** are the people, customers and vendors who move money. A person in several storylines is still one actor: the CEO who sells, hires and signs the checks gets a brief from each of those storylines and acts as one person.
-- **Staff** act for an institution and make judgment calls: hold a payout for review, return a wire, reverse a duplicate charge.
-- **The market** acts for all the shops, airlines and restaurants people buy from.
+**The runner holds no business logic.** Everything about a world comes from the LLM that writes it:
 
-**Every world starts with a history.** On day one, money is already in transit, invoices are open, and cards are on file with vendors, because every real business has a past.
+- **`world.py`** holds the entities, each institution's own ledger, rules and contracts, the routine work that runs in code, the tools each entity offers others, and the state on the first day: balances, contracts in force, money in transit, open bills.
+- **`prompts.json`** holds the agents. Each entity whose choices need judgment acts through an agent with a role, habits and a starting notepad: holding a suspicious payout, chasing a late invoice, paying rent late.
 
-**Every simulated day, every agent takes a turn.** It looks at its own balances, inbox and bills, then decides what to do using tools: pay, collect, bill, dispute, send a message, make a note. Paying rent on time is a decision just like paying it late. Most days are ordinary, and some aren't.
+**The world runs in a sandbox.** `world.py` runs in its own process with no network access, no API keys and write access only to its run folder (macOS `sandbox-exec`).
 
-**The engine checks every action on the spot.** It checks that the actor can use the account and the payment method, that a collection has the payer's permission, that the funds are there, and that money is conserved. A rejected payment goes back to the agent with the reason, so it can move money from savings and try again.
-
-**Institutions are declared, not coded.** A bank, card issuer, processor or factoring company is written in the manifest. The declaration picks the payment methods the institution handles, sets up generic mechanisms (settlement delays, fees, holds, payouts, statements, interest, numbering, merchant descriptors), and says how each output table is built. A new institution or a new industry needs a manifest, not code. See [`docs/declaring-an-institution.md`](docs/declaring-an-institution.md).
-
-**Edit any prompt and rerun.** Every person, their part in each storyline, every relationship, story and one-off ("pays late once, then short-pays") is a prompt in the manifest. Change one, run again, and the data is regenerated.
-
-## The harness
-
-The project is a harness around a model we don't train. These are its parts and where each one lives in the design:
-
-| Part | In `worldgen` |
-|---|---|
-| **Tools:** what an agent can do | A fixed set per role: the world builder builds the shared world, narrators cast, plan and brief, actors move money and talk, staff decide for their institution. The same tools work in every industry. |
-| **Context:** what an agent sees | Each turn's brief holds the agent's prompt, the plan from each storyline it is in, any one-offs that apply to it, and today's bills, messages and story steps. Narrators also see the shared world: who exists, the institutions, accounts and agreements, and the shared facts. No one sees another agent's private state. |
-| **Checks:** what keeps the output right | Every action is validated as it happens. After the run, `verify` checks invariants: money is conserved, every row traces to an event, institutions stay isolated, each party has exactly one agent, and the tree follows its rules. |
-| **The loop:** how work is split into steps | Day by day: narrator reviews, then all turns in parallel, then settlement and institution mechanisms at day close. |
-| **Records:** what makes runs inspectable and comparable | Every model request, response and tool call goes into the run's log, and every run is kept as a snapshot. |
-| **Evals:** how we know it got better | Tests that query the output for the target phenomena, plus a suite of 20 world prompts, at least 18 of which must produce valid worlds. |
-
-Runs are **non-deterministic by design**. Two runs of the same world can differ, and both must pass every check. Correctness comes from the invariants and the event log, not from reproducing the same rows.
+**Agents learn inside a run.** A rejected or delayed call comes back with a plain reason and the numbers that matter, so the agent can adjust and try again. Each turn shows the agent its status today, its last few days of calls, and a short notepad it rewrites at the end of every turn.
 
 ## Design principles
 
-- **The engine is domain-neutral.** Engine code never names an institution, industry, payment method or relationship type. A SaaS startup, a trucking company and a credit union differ only in their prompt and manifest.
-- **The LLM decides, code records.** Agents decide what happens. They never write table rows: rows are built from events by the institution that holds the account.
+- **The runner is domain-neutral.** It never names an institution, industry or payment method. A bike shop and a trucking company differ only in their prompt.
+- **Agents decide, code keeps the books.** Judgment calls belong to agents. Routine mechanics and each institution's records belong to the world's code.
 - **Friction emerges, never hardcoded.** Lags, batching and cutoff mismatches come from how the channels work and what agents choose, not from special-case rules.
-- **Institutions are good-enough approximations.** We model what shows up in an institution's exports, not its internal operations. Approximations are listed in the docs.
-- **Preferences are switchable policies.** Wherever a world could reasonably work another way (which account a payment lands in, which institution hears a dispute), the choice is a named policy with a default, and each world can switch it.
-- **Coverage, not exact numbers.** A generated world matches its target when it shows the same kinds of events and stories, not the same amounts or dates.
+- **Institutions are good-enough approximations.** A world models what shows up in an institution's records, not every internal step.
+- **Coverage, not exact numbers.** A world matches its prompt when it shows the same kinds of events and stories, not the same amounts or dates.
+- **Runs are non-deterministic by design.** Two runs of the same prompt can differ, and both must hold up.
 
-## Example worlds
+## Run it
 
-| World | What it is | Institutions |
-|---|---|---|
-| [`examples/saas_startup`](examples/saas_startup) | A small B2B SaaS company, 2021-2022, modeled on the [AccountingBench](https://accounting.penrose.com/) company. [`TARGET_EXAMPLE.md`](TARGET_EXAMPLE.md) is its main prompt. | Mercury (bank), Ramp (cards), Stripe (processor), Rippling (payroll) |
-| [`examples/trucking`](examples/trucking) | Ozark Ridge Freight, a six-truck carrier in Missouri, 2024. It shows that a new industry needs no code change. | Prairie Hollow Bank, RoadFleet fuel card, Ironbridge Freight Funding (factoring) |
+```
+uv sync
+uv run pytest -q                                                  # offline tests
+uv run --env-file .env worldgen examples/bike_shop/PROMPT.md --days 7
+```
 
-Each example so far holds its institution declarations (`manifest.yaml`) and a JSON Schema for every output table (`schemas/`).
+Models go through [OpenRouter](https://openrouter.ai/), so `.env` needs `OPENROUTER_API_KEY`.
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `--days` | `7` | Days to simulate from the world's first day |
+| `--world-model` | `z-ai/glm-5.3` | Writes the world |
+| `--agent-model` | `z-ai/glm-5.3-flash` | Plays the agents |
+| `--fix-rounds` | `5` | Times a crashing world goes back to be fixed |
+| `--out` | `worlds/<prompt>/<time>` | Where the run is saved |
 
 ## What a run produces
 
 ```
-worlds/<name>/runs/<run_id>/
-  run.json                  status, timing, counts
-  manifest.yaml             the world exactly as it was run
-  prompts.json              every prompt in force at the start
-  prompt_revisions.json     prompts agents changed during the run
-  events.jsonl              every money movement and record, the source of truth
-  log.jsonl                 every model call, tool call, review and rejection, in order
-  <institution>/<table>.json   the output tables
+worlds/<prompt>/<time>/
+  world.py           the world's code
+  prompts.json       the agents
+  log.jsonl          every model call, tool call, rejection and crash, in order
+  records.json       each institution's records after the last day
+  notepads.json      each agent's notepad after the last day
+  run.json           status, models, counts and cost
+  world_stderr.log   anything the world's code printed
 ```
 
-A run is never edited after it finishes, and later edits to the world don't change it.
+## View runs
+
+```
+uv run python ui/server.py              # http://127.0.0.1:8765
+uv run python ui/server.py --port 8080
+```
+
+A dropdown picks any run under `worlds/`, grouped by prompt. Each run has tabs for its days (every agent call with its reason, arguments, result and notepad), agents, institution records, dry-run tries, `world.py`, the prompt and the raw files. A run still in progress refreshes itself.
+
+## Example prompts
+
+| Prompt | What it is |
+|---|---|
+| [`examples/bike_shop/PROMPT.md`](examples/bike_shop/PROMPT.md) | Spoke & Chain, a one-room bike repair shop in Eugene, Oregon. The smallest world, for quick runs. |
+| [`TARGET_EXAMPLE.md`](TARGET_EXAMPLE.md) | A small B2B SaaS company, 2021-2022, modeled on the [AccountingBench](https://accounting.penrose.com/) company. |
+| [`examples/trucking/PROMPT.md`](examples/trucking/PROMPT.md) | Ozark Ridge Freight, a six-truck carrier in Missouri, 2024. |
 
 ## Where we are
 
-**Done**
-- [`stage_1.md`](stage_1.md): what is being built now: the world on its first day, from a main prompt to a saved, checked world.
-- [`TARGET_EXAMPLE.md`](TARGET_EXAMPLE.md): the SaaS world, written as the prompt the generator will receive.
-- [`docs/declaring-an-institution.md`](docs/declaring-an-institution.md): the institution declaration language, tested on paper against the SaaS institutions and the trucking ones. Every SaaS table column maps to a generic source. Trucking needed six small additions, which are proposed and waiting for approval.
-- [`src/worldgen/`](src/worldgen): the narrator agent. Given a prompt (a whole world, or one part of it with context in a brief), it writes the detailed story of that part, creates the narrators and actors below it, and briefs each one. Its child narrators can then expand their own parts the same way. See [Run the narrator](#run-the-narrator).
+**Built**
+- The runner in [`src/worldgen/`](src/worldgen): generate, the sandboxed dry run, and the day loop.
+- The local run viewer in [`ui/`](ui).
 
-**Next**
-1. **Checkpoint 0:** approve the declaration language and decide on the additions trucking needed.
-2. **Tracer bullet:** a tiny world (an ops manager, a customer, a landlord, a bank) runs through the real agent loop, first with a scripted fake model, then with Claude.
-3. **Narrator tree:** reviews, briefs, escalation, casting and a growing cast during the run.
-4. **Actor life and institutions:** messages, bills, card-on-file payments, memory and one-offs, then the market, staff, and each generic mechanism. Then the trucking world runs on the same engine with no code change.
-5. **First milestone:** a live 15-day run of the SaaS world (January 1-15, 2021) from a hand-written manifest, to see how well the agent loop works.
-6. **Authoring:** turn a one-paragraph prompt into a whole world: the world builder first, then the narrator tree.
-7. **Run history and the full 18-month run.**
-
-## Run the narrator
-
-```
-uv sync
-uv run pytest -q                                   # tests, with a scripted fake model
-uv run --env-file .env worldgen narrate --prompt-file TARGET_EXAMPLE.md --out worlds/lumen/story
-uv run --env-file .env worldgen narrate --prompt "The sales department of ..." --brief "What the company is ..." --out worlds/sales
-uv run --env-file .env worldgen narrate --prompt "..." --out worlds/x --policy child_roles=any_group
-```
-
-The narrators decide how deep the tree goes: a run continues until no narrator is pending. A narrator whose parent fails never runs, and the run summary names it. Which children become narrators is policy `child_roles`: `inside_parts` (default) keeps every outside party an actor, and `any_group` lets a customer, vendor or household with several people who act become a narrator too.
-
-Each output directory holds `tree.json` (every node's prompt, brief and story), `story.md` (the same, to read) and `log.jsonl` (every model reply and tool call). Choose a provider with `--provider` and optionally override its default model with `--model`. Both are options of `narrate`.
-
-| Provider | Default model | Environment variable |
-| --- | --- | --- |
-| `anthropic` | `claude-haiku-5-5` | `ANTHROPIC_API_KEY` |
-| `deepseek` | `deepseek-flash` (DeepSeek-V4.1-Flash) | `DEEPSEEK_API_KEY` |
-| `openrouter` | `deepseek/deepseek-v4.1-flash` (any OpenRouter model id works with `--model`) | `OPENROUTER_API_KEY` |
-
-When `--provider` is omitted, the first configured key wins in the table's order. `--effort` defaults to `low`, and `--max-tokens` (the output limit per model call) defaults to 64000.
-
-```bash
-uv run --env-file .env worldgen narrate --prompt-file TARGET_EXAMPLE.md --out worlds/x --provider openrouter --model z-ai/glm-5.3-flash
-```
-
-## Planned commands
-
-These are the rest of the interface the spec defines. None of them exist yet.
-
-```
-uv sync                                          # install
-uv run worldgen author --prompt "..." --out worlds/demo/manifest.yaml   # build a world from a prompt
-uv run worldgen validate worlds/demo/manifest.yaml                     # check a manifest
-uv run worldgen simulate worlds/demo/manifest.yaml                     # run it
-uv run worldgen runs list|show|tail|cancel worlds/demo                 # run history; tail follows a live run
-uv run worldgen prompts history|revert worlds/demo                     # prompt revisions
-uv run worldgen verify worlds/demo/runs/<run_id>                       # check the run's invariants
-```
+**Next**, from [`stage_1.md`](stage_1.md)
+1. The judge: fast Python checks, then an LLM that reads the run and writes findings blamed on `world.py` or on one agent.
+2. Improve: findings patch `world.py` or rewrite one agent's prompt, keeping the best version of each.
+3. The training loop: a 7-day smoke test, a 35-day window across a month-end, then the full range.
 
 ## Tech stack
 
-Python 3.12, `pydantic` v2, `PyYAML`, `typer`, `jsonschema`, the Anthropic Python SDK, and `httpx2` for Chat Completions providers. Money is always `Decimal`. Tests use `pytest` and `hypothesis`, with fake model responses and simulated HTTP transports so they stay stable even though runs aren't deterministic.
+Python 3.12, `typer` and `httpx2`. A world's code uses only the standard library and keeps money in `Decimal`. Tests use `pytest` with a scripted fake model, so they run offline.
