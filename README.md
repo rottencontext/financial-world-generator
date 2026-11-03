@@ -2,7 +2,7 @@
 
 `worldgen` creates realistic synthetic financial data. It simulates a business as a world of LLM agents (founders, employees, customers, vendors, banks) and records what they do the way real institutions would. The output is the raw exports a business would actually have: bank transactions, card transactions, payment processor charges and payouts, and payroll journal entries.
 
-> **Status:** early build. The first agent, the narrator, is in `src/worldgen/`. The rest of this repo is the spec, the build plan, and the language for declaring institutions, checked on paper against two industries. See [Where we are](#where-we-are).
+> **Status:** early build. The first agent, the narrator, is in `src/worldgen/`. [`stage_1.md`](stage_1.md) describes what is being built now: the world on its first day. The language for declaring institutions is checked on paper against two industries. See [Where we are](#where-we-are).
 
 ## Why
 
@@ -21,9 +21,11 @@ You can't get this mess by inventing tidy journal entries and working backwards.
 ```
 main prompt  ("a B2B SaaS startup, 18 months, 5 staff ...")
     |
-narrator tree builds the world on day 0
+world builder builds the shared world on day 0: institutions, the cast, accounts, history
     |
-world manifest  (institutions, people, accounts, relationships, history, stories, prompts)
+narrator tree plans the storylines over it, casting people into each one
+    |
+world manifest  (institutions, people, castings, accounts, relationships, history, facts, stories, prompts)
     |
 day-by-day simulation: every agent takes a turn, using tools
     |
@@ -32,9 +34,10 @@ institutions record what happened on their accounts
 JSON tables per institution  +  an event log explaining every row
 ```
 
-**A world is a tree of agents.**
-- **Narrators** tell the story. The root narrator holds one person's life, for example the CEO's. Each narrator below it covers one part of that life: the company, the sales team, a household. Narrators brief their children, read their reports, and add or remove people as the story needs (a hire, a new customer, a dropped vendor). Siblings never see each other, so they decide independently.
-- **Actors** sit at the leaves: the people, customers and vendors who move money.
+**A world is one cast of agents, planned by a tree of narrators.**
+- **The world builder** reads the main prompt on day 0 and builds what every storyline shares: the institutions, every person and business the prompt names (each with the one agent that acts for it), their accounts, agreements and history, and a few facts everyone must know.
+- **Narrators** tell the story. The root narrator holds one person's life, for example the CEO's. Each narrator below it covers one part of that life: the company, the sales team, a household. Narrators cast people from the shared world into their storyline, brief them, read their reports, and add or drop people as the story needs (a hire, a new customer, a dropped vendor). Sibling narrators never see each other's plans, so they decide independently, but they all see the same world.
+- **Actors** are the people, customers and vendors who move money. A person in several storylines is still one actor: the CEO who sells, hires and signs the checks gets a brief from each of those storylines and acts as one person.
 - **Staff** act for an institution and make judgment calls: hold a payout for review, return a wire, reverse a duplicate charge.
 - **The market** acts for all the shops, airlines and restaurants people buy from.
 
@@ -46,7 +49,7 @@ JSON tables per institution  +  an event log explaining every row
 
 **Institutions are declared, not coded.** A bank, card issuer, processor or factoring company is written in the manifest. The declaration picks the payment methods the institution handles, sets up generic mechanisms (settlement delays, fees, holds, payouts, statements, interest, numbering, merchant descriptors), and says how each output table is built. A new institution or a new industry needs a manifest, not code. See [`docs/declaring-an-institution.md`](docs/declaring-an-institution.md).
 
-**Edit any prompt and rerun.** Every person, relationship, story and one-off ("pays late once, then short-pays") is a prompt in the manifest. Change one, run again, and the data is regenerated.
+**Edit any prompt and rerun.** Every person, their part in each storyline, every relationship, story and one-off ("pays late once, then short-pays") is a prompt in the manifest. Change one, run again, and the data is regenerated.
 
 ## The harness
 
@@ -54,9 +57,9 @@ The project is a harness around a model we don't train. These are its parts and 
 
 | Part | In `worldgen` |
 |---|---|
-| **Tools:** what an agent can do | A fixed set per role: narrators build and brief, actors move money and talk, staff decide for their institution. The same tools work in every industry. |
-| **Context:** what an agent sees | Each turn's brief holds the agent's prompt, its narrator's plan, any one-offs that apply to it, and today's bills, messages and story steps. It never shows another agent's private state. |
-| **Checks:** what keeps the output right | Every action is validated as it happens. After the run, `verify` checks invariants: money is conserved, every row traces to an event, institutions stay isolated, and the tree follows its rules. |
+| **Tools:** what an agent can do | A fixed set per role: the world builder builds the shared world, narrators cast, plan and brief, actors move money and talk, staff decide for their institution. The same tools work in every industry. |
+| **Context:** what an agent sees | Each turn's brief holds the agent's prompt, the plan from each storyline it is in, any one-offs that apply to it, and today's bills, messages and story steps. Narrators also see the shared world: who exists, the institutions, accounts and agreements, and the shared facts. No one sees another agent's private state. |
+| **Checks:** what keeps the output right | Every action is validated as it happens. After the run, `verify` checks invariants: money is conserved, every row traces to an event, institutions stay isolated, each party has exactly one agent, and the tree follows its rules. |
 | **The loop:** how work is split into steps | Day by day: narrator reviews, then all turns in parallel, then settlement and institution mechanisms at day close. |
 | **Records:** what makes runs inspectable and comparable | Every model request, response and tool call goes into the run's log, and every run is kept as a snapshot. |
 | **Evals:** how we know it got better | Tests that query the output for the target phenomena, plus a suite of 20 world prompts, at least 18 of which must produce valid worlds. |
@@ -99,19 +102,18 @@ A run is never edited after it finishes, and later edits to the world don't chan
 ## Where we are
 
 **Done**
-- [`SPEC.md`](SPEC.md): the full design.
+- [`stage_1.md`](stage_1.md): what is being built now: the world on its first day, from a main prompt to a saved, checked world.
 - [`TARGET_EXAMPLE.md`](TARGET_EXAMPLE.md): the SaaS world, written as the prompt the generator will receive.
-- [`tasks/plan.md`](tasks/plan.md) and [`tasks/todo.md`](tasks/todo.md): the build plan, about 60 small tasks with checkpoints.
 - [`docs/declaring-an-institution.md`](docs/declaring-an-institution.md): the institution declaration language, tested on paper against the SaaS institutions and the trucking ones. Every SaaS table column maps to a generic source. Trucking needed six small additions, which are proposed and waiting for approval.
 - [`src/worldgen/`](src/worldgen): the narrator agent. Given a prompt (a whole world, or one part of it with context in a brief), it writes the detailed story of that part, creates the narrators and actors below it, and briefs each one. Its child narrators can then expand their own parts the same way. See [Run the narrator](#run-the-narrator).
 
 **Next**
 1. **Checkpoint 0:** approve the declaration language and decide on the additions trucking needed.
 2. **Tracer bullet:** a tiny world (an ops manager, a customer, a landlord, a bank) runs through the real agent loop, first with a scripted fake model, then with Claude.
-3. **Narrator tree:** reviews, briefs, escalation and a growing cast during the run.
+3. **Narrator tree:** reviews, briefs, escalation, casting and a growing cast during the run.
 4. **Actor life and institutions:** messages, bills, card-on-file payments, memory and one-offs, then the market, staff, and each generic mechanism. Then the trucking world runs on the same engine with no code change.
 5. **First milestone:** a live 15-day run of the SaaS world (January 1-15, 2021) from a hand-written manifest, to see how well the agent loop works.
-6. **Authoring:** turn a one-paragraph prompt into a whole world.
+6. **Authoring:** turn a one-paragraph prompt into a whole world: the world builder first, then the narrator tree.
 7. **Run history and the full 18-month run.**
 
 ## Run the narrator
