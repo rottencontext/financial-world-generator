@@ -1,26 +1,22 @@
-# Target World: AccountingBench-Style SaaS Startup
+# Target: AccountingBench-Style SaaS Startup
 
 **Reference benchmark:** [AccountingBench (Penrose)](https://accounting.penrose.com/)
 
-## 1. Purpose: this document is the prompt for the world generator
+## 1. The company and its data
 
-This file describes, in as much detail as possible, the kind of world the generator in `SPEC.md` should be able to create. It is written to be handed to the root narrator as the main prompt: from it the narrator tree produces a manifest (institutions, entities, accounts, relationships, catalog, seed, stories, noise, prompts, time range), which the simulator then runs into the `source_data` tables in section 5. It describes the world and the output, not an implementation. How the simulator works is in `SPEC.md`.
+This describes a small B2B SaaS startup, its past, the 18 months it lives through, and the raw exports it has: bank statements, a corporate card, a payment processor, and payroll journal entries (section 5). Details marked † come from the public [AccountingBench](https://accounting.penrose.com/) page and its transcripts; the company, its people and its account numbers are invented.
 
-Amounts, names and dates in this document are examples. A generated world matches this one when it shows the same kinds of events and stories (section 6), not the same numbers. Details marked † come from the public [AccountingBench](https://accounting.penrose.com/) page and its transcripts, so a world built from this prompt stays close to the real company's data.
+Its exports are messy the way real ones are:
 
-**What AccountingBench-style data is.** The raw exports a small company would have: bank statements, a corporate card, a payment processor, and payroll journal entries. The data is only useful if it has the friction real exports have, so the world must be built from the money's side, not the accounting side:
-
-1. **Causal grounding.** Every row traces to something that happened in the world: a customer renewing, a vendor billing, a payroll run, a person on a trip. Nobody first invents balanced journal entries and then reverse-engineers clean rows.
-2. **Isolated actors.** Each customer, vendor, person and institution knows only what it would know. Stripe does not know what is in Mercury. Mercury does not know which customer invoices make up a `Deposit - STRIPE`. Each institution's tables hold only what that institution would record.
-3. **Time-lagged money.** Cash moves through ACH, wire, card and payout channels that take days to settle and skip weekends and holidays, so tables disagree on dates at every month end.
-4. **Human arbitrariness.** Discretionary spending follows what real people did that week (a client trip, a team dinner, a personal charge by mistake), not uniform random numbers.
-5. **No hardcoded friction.** Settlement lags, batching and cutoff differences must come out of how the channels work (section 6), not special-case rules.
+1. **Each system sees only its own side.** Stripe does not know what is in Mercury. Mercury does not know which customer invoices make up a `Deposit - STRIPE`. Each system's exports hold only what that system records.
+2. **Money takes time to move.** Cash moves through ACH, wire, card and payout channels that take days to settle and skip weekends and holidays, so the exports disagree on dates at every month end.
+3. **People spend like people.** Discretionary spending follows what people did that week: a client trip, a team dinner, a personal charge by mistake.
 
 ## 2. The company and the time frame
 
 - **Business:** a Y Combinator-backed† B2B SaaS startup with revenue in the millions of dollars a year†. Most of it comes from enterprise accounts on annual contracts; a long tail of self-serve subscribers adds a few thousand dollars a month through Stripe†.
 - **Time range:** 2021-01-01 to 2022-06-30 (18 months), currency USD.
-- **Opening position:** the company already exists on day one (section 2.1). Its seed money sits in Mercury: about `$2,500,000` in `Mercury Treasury` by early 2021†, with `Mercury Checking X0666` as the operating account everything else settles into.
+- **Opening position:** the company already exists on 2021-01-01 (section 2.1). Its seed money sits in Mercury: about `$2,500,000` in `Mercury Treasury` by early 2021†, with `Mercury Checking X0666` as the operating account everything else settles into.
 - **Headcount:** 5 core staff at the start (section 3.3), growing with a few hires; paid twice a month. Gross salaries run about `$25,000` a month in early 2021, with about `$3,200` of employer payroll tax†.
 - **Systems the company uses (the only sources of data):**
   - **Mercury** bank with three accounts: `Mercury Checking X0666` (operating), `Mercury Checking X3354` (shown as `Mercury Savings X3354` in some places†), and `Mercury Treasury` (interest-bearing).
@@ -30,7 +26,7 @@ Amounts, names and dates in this document are examples. A generated world matche
 
 ### 2.1 History before the start
 
-Like every real business, this one has a past, and the world starts in the middle of it. Write this history into the seed and into each node's prompt:
+By 2021-01-01 the company has a past:
 
 - The company was founded in mid-2020, went through Y Combinator†, and raised a seed round of a few million dollars by equity wire into Mercury X0666. On `2020-12-31` it moved `$2,000,000` of it into Mercury Treasury†.
 - Payroll has run on the 10th and 26th since late June 2020, so Rippling's journal numbers are already in the teens (`JE #18` falls on `2021-03-10`).
@@ -40,13 +36,11 @@ Like every real business, this one has a past, and the world starts in the middl
 - On `2021-01-01` money is still moving: a Stripe payout sent on December 30 is in transit, Ramp's December statement awaits its autopay, card swipes from December 30-31 have not settled, and counsel's December Net-30 invoice is unpaid.
 - The five people have held their roles, cards and habits for months.
 
-## 3. The cast: entities to create
-
-Create each as an entity with its own prompt. Give every entity an id, kind and a short prompt describing how it behaves; the behavior comes from the prompt, not from many fixed fields. Entities should be mostly shells.
+## 3. The people and businesses it deals with
 
 ### 3.1 Customers
 
-- **Self-serve subscribers (dozens at a time, a few hundred over the period):** monthly plans at `$25`, `$37`, `$39`, `$80`, `$139` or `$270`†, paid by a card kept on file at Stripe, which charges it on the renewal day. Each has a signup date, a renewal day, and a small chance of churn, refund or dispute. Most renewals are paid the day they are invoiced; some are paid a day or more later after a failed attempt, and a few amounts match no plan price because of a discount or proration (a `$30.00` payment†). Each subscriber is its own actor with a short prompt: create them many at a time, starting with the base that already exists (section 2.1) and adding signups through the period.
+- **Self-serve subscribers (dozens at a time, a few hundred over the period):** monthly plans at `$25`, `$37`, `$39`, `$80`, `$139` or `$270`†, paid by a card kept on file at Stripe, which charges it on the renewal day. Each has a signup date, a renewal day, and a small chance of churn, refund or dispute. Most renewals are paid the day they are invoiced; some are paid a day or more later after a failed attempt, and a few amounts match no plan price because of a discount or proration (a `$30.00` payment†). A base of subscribers already exists on 2021-01-01 (section 2.1), and new ones sign up through the period.
 - **Enterprise buyers (a dozen or so, most of the revenue):** annual prepaid contracts paid by wire or ACH straight into Mercury, not Stripe. The anchor example is `Contoso`: `$85,363.20` per year†, contract `2020-12-01` to `2021-11-30`, paid up front (section 2.1), with an expansion after the CEO's New York trip in March 2021 and a renewal in December 2021. Enterprise buyers approve slowly and may pay late or short-pay.
 - **Refunds and disputes:** a small share of charges are refunded or disputed days or weeks after payment, as full or partial refunds through Stripe.
 
@@ -60,7 +54,7 @@ Create each as an entity with its own prompt. Give every entity an id, kind and 
 
 ### 3.3 People
 
-Five core people, each with a role, a Ramp card (some with Mercury access) and habits. Their prompts carry the personality.
+Five core people, each with a role, a Ramp card (some with Mercury access) and habits.
 
 | Person | Role and access | Typical business activity | Typical personal or commingled activity |
 | :--- | :--- | :--- | :--- |
@@ -74,17 +68,17 @@ Memos on Ramp swipes range from clear ("Client dinner with Acme VP"), to terse, 
 
 ### 3.4 Institutions
 
-These are entities too. Declare each with the payment methods it handles, its mechanics and its tables in section 5. Each writes only its own tables, from events on its own accounts, and has a staff node that decides situations: holding a payout for review, returning a wire, posting a duplicate and reversing it.
+Each records only what happens on its own accounts, in the exports in section 5. Their staff make judgment calls now and then: holding a payout for review, returning a wire, posting a duplicate and reversing it.
 
 - **Stripe:** invoices, card charges, refunds and payouts. Fee is `2.9% + $0.30` per charge. Charges become available about two days after they are made and are swept into a payout each business day, so `Deposit - STRIPE` lands in Mercury almost every business day, usually for `$35` to `$500` in early 2021†. If refunds exceed charges, Stripe pulls the difference by ACH from Mercury.
 - **Ramp:** card transactions and monthly statements. Charges settle 1-3 days after the swipe. Statements close at a month-end cutoff and are paid by autopay from Mercury X0666. Now and then Ramp posts a merchant's charge twice and reverses the duplicate a few days later.
 - **Rippling:** payroll journal entries on the 10th and 26th, numbered in sequence (for example `JE #18` on `2021-03-10` and `JE #19` on `2021-03-26`), with matching ACH debits from Mercury for net pay and taxes. Each line's `account` is the company's own account name as set up in Rippling (`61100 - Salaries`, `61200 - Employer Payroll Tax`, `11100 - Mercury Checking X0666`).
 - **Mercury:** settled bank lines for its three accounts, monthly statements, month-end interest (for example `Interest Accrual` of `$0.82` on checking†; Treasury earns a few hundred dollars a month, such as `$444.98` for January 2021†) and service fees. It sees only cash that has settled.
-- **Merchants:** the catalog merchants people buy from (airlines, restaurants, Amazon, Apple) act through the market: they refund returns.
+- **Merchants:** the airlines, restaurants and shops people buy from (Amazon, Apple) refund returns.
 
 ## 4. Relationships and money flows
 
-The relationships are the map of the world. Create these edges, with a prompt and terms where they apply:
+How money moves between the company and the parties it deals with:
 
 | Relationship | Money flow and timing |
 | :--- | :--- |
@@ -104,7 +98,7 @@ Channels differ in speed: card charges settle in 1-3 days, ACH in 1-3 business d
 
 ### 4.1 Example story: CEO trip to New York, March 2021
 
-Stories are the cause of discretionary spending. This one shows the shape; the generator should write similar ones for other people and months. Narrative:
+Discretionary spending follows what people are doing. One example:
 
 > CEO Alex Rivera flew to New York (March 11-14) to close the Contoso enterprise expansion. Hosted Contoso executives at Mastro's Steakhouse on March 12. Stayed two extra personal nights at the hotel with a spouse (March 13-14), bought personal AirPods Max at the Fifth Ave Apple Store on Saturday March 13 with the company Ramp card, and on March 15 initiated an ACH payment from Mercury Checking X0666 to cover a personal vehicle lease.
 
@@ -117,11 +111,11 @@ Money movements it causes:
   - `2021-03-14` `THE STANDARD HIGH LINE` `$1,800.00`, memo "4 nights NYC - 2 nights Contoso biz, 2 nights personal weekend"
 - Mercury X0666: `2021-03-16` `ACH Debit - PORSCHE FINANCIAL` `($1,150.00)`
 
-**One-offs:** this prompt asks for one-offs like this trip, personal charges, late or short payments and disputes (section 6.1), so the first generation includes them, spread across people and months. Beyond what this prompt asks for, the generator adds nothing on its own; reviewers add more through the per-entity prompts.
+Trips like this, personal charges, late or short payments and disputes (section 6.1) happen throughout the period, across people and months.
 
 ### 4.2 More stories
 
-These follow the same shape: a reason, then the money it moves. Use them, and write others like them for other people and months.
+Other things that happen, each with the money it moves. Similar things happen to other people in other months.
 
 - **Parking the seed money (January 2021)†.** After the `$2,000,000` moved into Mercury Treasury on 2020-12-31 (section 2.1), Alex moves `$1,000,000` more on `2021-01-05` and `$785,000` on `2021-01-08`. Money: internal transfers from X0666 to Treasury, and Treasury interest every month from then on.
 - **Refunds outrun charges (February 2021)†.** A handful of subscribers get refunds in a quiet week, Stripe's balance goes negative, and Stripe pulls the difference from Mercury: `Stripe - Expense - STRIPE` of `-$282.70` on `2021-02-05`, and `-$35.39` on `2021-02-23`, the same day a `$489.54` payout lands. Money: Stripe refunds and ACH pulls from X0666 between ordinary payouts.
@@ -137,9 +131,9 @@ These follow the same shape: a reason, then the money it moves. Use them, and wr
 
 ## 5. JSON `source_data` Schema Specification
 
-Each financial institution writes strictly to its own tables ([AccountingBench](https://accounting.penrose.com/)). Output is JSON only: one file per table, `<institution>/<table>.json`, holding an array of row objects that validates against the schemas below (JSON Schema 2020-12). Conventions:
+Each financial institution writes strictly to its own tables ([AccountingBench](https://accounting.penrose.com/)). The data is JSON: one file per table, `<institution>/<table>.json`, holding an array of row objects that validates against the schemas below (JSON Schema 2020-12). Conventions:
 
-- **Money** is a string with exactly two decimal places (`"-642.20"`), never a JSON number, so it parses to `Decimal` without float error.
+- **Money** is a string with exactly two decimal places (`"-642.20"`), never a JSON number.
 - **Dates** are ISO `YYYY-MM-DD`; **months** are `YYYY-MM`; **ids** are UUIDs.
 - **Nullable columns** are written as `null`; columns not listed in `required` may also be omitted.
 - **Foreign keys** cannot be expressed in JSON Schema, so they are marked with the custom keyword `x-references: "<table>.<column>"`.
@@ -169,7 +163,7 @@ Each financial institution writes strictly to its own tables ([AccountingBench](
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "mercury.schema.json",
-  "description": "Written only by Mercury, from events on its own accounts. One <table>.json file per entry in properties.",
+  "description": "Written only by Mercury, about its own accounts. One <table>.json file per entry in properties.",
   "type": "object",
   "properties": {
     "mercury_transactions": {
@@ -251,7 +245,7 @@ Each financial institution writes strictly to its own tables ([AccountingBench](
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ramp.schema.json",
-  "description": "Written only by Ramp, from events on its own accounts. One <table>.json file per entry in properties.",
+  "description": "Written only by Ramp, about its own accounts. One <table>.json file per entry in properties.",
   "type": "object",
   "properties": {
     "ramp_card_transactions": {
@@ -331,7 +325,7 @@ Each financial institution writes strictly to its own tables ([AccountingBench](
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "stripe.schema.json",
-  "description": "Written only by Stripe, from events on its own accounts. One <table>.json file per entry in properties.",
+  "description": "Written only by Stripe, about its own accounts. One <table>.json file per entry in properties.",
   "type": "object",
   "properties": {
     "stripe_invoices": {
@@ -453,7 +447,7 @@ Each financial institution writes strictly to its own tables ([AccountingBench](
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "rippling.schema.json",
-  "description": "Written only by Rippling, from events on its own accounts. One <table>.json file per entry in properties.",
+  "description": "Written only by Rippling, about its own accounts. One <table>.json file per entry in properties.",
   "type": "object",
   "properties": {
     "rippling_journal_entries": {
@@ -481,11 +475,11 @@ Each financial institution writes strictly to its own tables ([AccountingBench](
 
 ---
 
-## 6. How real-world friction should emerge
+## 6. Where its exports disagree
 
-Because each entity acts on its own schedule through channels with real delays, discrepancies appear across tables without any special-case rules. A correct world shows all of the following:
+Because each party acts on its own schedule and money moves through channels with real delays, the exports disagree with each other in these ways:
 
-| Phenomenon | Causal chain across independent entities |
+| Phenomenon | What happens |
 | :--- | :--- |
 | **1. In-transit month-end payouts** | Customers pay on March 29-31 -> Stripe batches a payout on March 30 (`payout_date = 2021-03-30`, `arrival_date = 2021-04-01`) -> the ACH is held until April 1 -> the Mercury March statement excludes it |
 | **2. Many-to-one payout batching** | Dozens of customer charges, processing fees and refunds in `stripe_*` are swept into a single net transfer that appears in `mercury_statement_line_items` simply as `Deposit - STRIPE` |
@@ -493,11 +487,11 @@ Because each entity acts on its own schedule through channels with real delays, 
 | **4. Executive and employee personal commingling** | A weekend trip produces swipes at `APPLE STORE` and `EQUINOX` on Ramp and a personal car lease wired from Mercury X0666, mixed in with normal weekday business travel |
 | **5. Ramp swipe-to-settlement cutoff lag** | A card swipe on March 30 (`swipe_date = 2021-03-30`) settles on April 1 (`transaction_date = 2021-04-01`), so it lands on the next month's Ramp statement |
 
-Further messiness the generator should allow: inconsistent vendor descriptors across months (from each merchant's descriptor variants); late-posted rows from staff holding a payout or returning a wire; duplicate card charges that Ramp posts and reverses a few days later; blank or misleading memos, some added days after the swipe; and customers who pay late, short-pay or send a corrective wire.
+Other messiness in its data: vendor names that appear differently from month to month; late-posted rows from staff holding a payout or returning a wire; duplicate card charges that Ramp posts and reverses a few days later; blank or misleading memos, some added days after the swipe; and customers who pay late, short-pay or send a corrective wire.
 
-### 6.1 Coverage: kinds of events and stories
+### 6.1 Kinds of events and stories
 
-Beyond the five phenomena, the world should show events of these kinds over its 18 months. Coverage only needs to be close: not every kind has to appear in every run, and amounts, dates and who is involved are up to the generator.
+Beyond the five phenomena, these kinds of events happen over the 18 months:
 
 - **Self-serve customers:** signups through the period, monthly renewals, renewals paid a day or more late after a failed attempt, amounts off plan prices (discounts, prorations), plan changes, churn, full and partial refunds, disputes, and Stripe pulling from Mercury when refunds exceed charges.
 - **Enterprise customers:** annual prepays by wire or ACH, slow approvals, a late payment, a short payment followed by a corrective wire, a mid-term expansion, a renewal.
@@ -506,15 +500,3 @@ Beyond the five phenomena, the world should show events of these kinds over its 
 - **Merchants:** a returned item refunded to a card.
 - **Institutions:** payouts in transit at month end; a change in payout schedule; a Stripe pull and a payout on the same day; a payout held for review; a returned wire; a duplicate card charge reversed a few days later; Ramp statements and autopay; monthly interest and fees; large transfers into Treasury and smaller ones back to checking; account labels that differ between places (X3354 as checking or savings).
 - **Stories:** the chains in sections 4.1 and 4.2, and others like them for different people and months.
-
----
-
-## 7. What the generator should produce from this prompt
-
-1. **World:** name, the time range in section 2, and currency.
-2. **Institutions:** the four in section 3.4, each declared with its payment methods, mechanics and the tables in section 5, and each with a staff node.
-3. **Entities and nodes:** the cast in section 3, each with a prompt carrying its personality and its history, and each node with its first brief for January 2021. Self-serve subscribers are individual actors, created many at a time; enterprise customers, key vendors and the five people are individual too.
-4. **Catalog:** the merchants people buy from, each with descriptor variants (`descriptors`), acted for by the market.
-5. **Relationships:** the edges in section 4, with terms where they are fixed (Contoso's amount and dates, rent, plan prices, payroll dates) and prompts where they are loose (when a customer pays, how an executive behaves). Cards on file and authorized debits are pulls the payee collects.
-6. **Seed:** the history in section 2.1.
-7. **Stories and noise:** the stories in sections 4.1 and 4.2, and enough others to cover section 6.1, spread across people and months.
