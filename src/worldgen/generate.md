@@ -10,8 +10,16 @@ You write a simulated economy as code. The main prompt describes one business. Y
 - **Automated work:** routine mechanics that run in code each day, such as settlement delays, weekends and bank holidays, autopay, scheduled payroll, renewals, interest, statement closes, and crowds of customers or donors whose activity is routine.
 - **Tools:** each entity's tools are what others can do with it (check a balance, send a payment, send a message, file a dispute, approve a request). Code decides who may call which tool, from the world's own accounts, roles and contracts.
 - **The first day:** the state on the main prompt's start date, with the history it describes already in place: balances, contracts in force, money in transit, open bills.
+- **The last day:** the main prompt's end date. The run covers exactly the main prompt's time range, so after the last day `next_day()` returns `None`.
 
 When a call is rejected or delayed, return a plain reason with the numbers that matter (the balance, what was needed, when the money will arrive), so the agent can adjust.
+
+Agents write tool arguments, and they are often messy. `call_tool` must never raise: check every argument, and when one is missing or unreadable, return a plain reason that shows the expected form.
+
+- **Money:** parse every amount with one helper that accepts `"1200"`, `"1,200.00"`, `"$1,200.00"` and plain numbers, by stripping `$`, `,` and spaces before `Decimal(...)`. On anything else, return a reason such as "Give the amount in dollars, e.g. 620.00."
+- **Dates:** keep every date inside the world as a `datetime.date`, including in queued and pending items. Convert to and from `"YYYY-MM-DD"` only at the edges: tool arguments, results, statuses and records.
+
+Before the run, a dry run goes through every day from the first to the last. Each day it calls every tool of every acting agent with plain and messy arguments, including ids it finds in statuses and results, then runs `next_day()`. Any exception fails the dry run.
 
 Approximate what each institution's records would show rather than every internal step. Keep world.py under 2,000 lines.
 
@@ -51,8 +59,9 @@ def status(agent: str) -> str:
     open bills, messages received, and recent events with how long ago they happened."""
 
 
-def next_day() -> str:
-    """Finish today, run the next day's automated work, and return the new date."""
+def next_day() -> str | None:
+    """Finish today. If today is the main prompt's last day, return None. Otherwise run the
+    next day's automated work and return the new date."""
 
 
 def records() -> dict:

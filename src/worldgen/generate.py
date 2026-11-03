@@ -1,6 +1,8 @@
-"""Ask an LLM to write world.py and prompts.json, run them once without agents, fix crashes."""
+"""Ask an LLM to write world.py and prompts.json, dry-run every tool, send crashes back to fix."""
 
+import itertools
 import json
+import random
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -8,7 +10,7 @@ from typing import Any
 
 from worldgen.llm import Message, chat
 from worldgen.log import RunLog
-from worldgen.world import World, WorldError
+from worldgen.world import MAX_DAYS, World, WorldError
 
 INSTRUCTIONS = Path(__file__).with_name("generate.md").read_text()
 TOOL_NAME = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
@@ -18,7 +20,6 @@ TOOL_KEYS = {"name", "entity", "description", "input_schema"}
 def generate(
     main_prompt: str,
     run_dir: Path,
-    days: int,
     model: str,
     log: RunLog,
     fix_rounds: int = 3,
@@ -36,7 +37,7 @@ def generate(
         log.cost(usage)
         problem = _write_files(reply.get("content") or "", run_dir, usage)
         if not problem:
-            problem = dry_run(run_dir, days)
+            problem = dry_run(run_dir)
         log.write({"type": "generate", "attempt": attempt + 1, "problem": problem})
         if not problem:
             print("generate: world passed the dry run", flush=True)
@@ -55,35 +56,71 @@ def generate(
     return False
 
 
-def dry_run(run_dir: Path, days: int) -> str | None:
-    """Run the world's code for every day with no agents acting. Return the first problem."""
+def dry_run(run_dir: Path, passes: int = 3) -> str | None:
+    """Run the world's code for every day from start() until next_day() returns None, calling
+    each acting agent's tools with plain and messy arguments. Return the first problem.
+
+    Calls change the world (a payment marks an invoice paid, so a later credit request on it is
+    refused), so each pass starts a fresh world and shuffles the order of the tools each day."""
+    for seed in range(passes):
+        problem = _dry_pass(run_dir, random.Random(seed))
+        if problem:
+            return problem
+    return None
+
+
+def _dry_pass(run_dir: Path, rng: random.Random) -> str | None:
     agents = json.loads((run_dir / "prompts.json").read_text())["agents"]
     try:
         world = World(run_dir)
     except WorldError as error:
         return str(error)
+    # Ids the agents could see so far, most recently seen last, so tools reach real records.
+    seen: dict[str, None] = {}
+    doing = "start()"
     try:
-        first_date = world.call("start")
-        if not isinstance(first_date, str) or not first_date.strip():
-            return f"start() must return a date string, got {first_date!r}"
-        for day in range(days):
-            if day:
-                next_date = world.call("next_day")
-                if not isinstance(next_date, str) or not next_date.strip():
-                    return f"next_day() must return a date string, got {next_date!r}"
+        date = world.call("start")
+        if not isinstance(date, str) or not date.strip():
+            return f"start() must return a date string, got {date!r}"
+        for _ in range(MAX_DAYS):
+            doing = f"agents_today() on {date}"
             acting = world.call("agents_today")
             if not isinstance(acting, list):
                 return f"agents_today() must return a list, got {acting!r}"
             for agent in acting:
                 if agent not in agents:
                     return f"agents_today() returned {agent!r}, which is not in prompts.json"
+            toolsets = {}
             for agent in agents:
+                doing = f"status({agent!r}) on {date}"
                 status = world.call("status", agent)
                 if not isinstance(status, str):
                     return f"status({agent!r}) must return a string, got {status!r}"
-                problem = _check_tools(agent, world.call("tools", agent))
+                _remember_ids(seen, status)
+                doing = f"tools({agent!r}) on {date}"
+                toolsets[agent] = world.call("tools", agent)
+                problem = _check_tools(agent, toolsets[agent])
                 if problem:
                     return problem
+            calls = [(agent, tool) for agent in dict.fromkeys(acting) for tool in toolsets[agent]]
+            rng.shuffle(calls)
+            for agent, tool in calls:
+                ids = [*list(seen)[-MAX_IDS:], *agents]
+                for args in _arg_sets(tool["input_schema"], ids, date):
+                    doing = f"call_tool({agent!r}, {tool['name']!r}, {json.dumps(args)}) on {date}"
+                    _remember_ids(seen, str(world.call("call_tool", agent, tool["name"], args)))
+            doing = f"next_day() after {date}"
+            date = world.call("next_day")
+            if date is None:
+                break
+            if not isinstance(date, str) or not date.strip():
+                return f"next_day() must return a date string or None, got {date!r}"
+        else:
+            return (
+                f"next_day() still returned a date after {MAX_DAYS} days. "
+                "Return None after the main prompt's last day."
+            )
+        doing = "records()"
         records = world.call("records")
         if not isinstance(records, dict):
             return f"records() must return a dict, got {type(records).__name__}"
@@ -94,10 +131,81 @@ def dry_run(run_dir: Path, days: int) -> str | None:
                 if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
                     return f"records()[{inst!r}][{table!r}] must be a list of dict rows"
     except WorldError as error:
-        return str(error)
+        return f"The dry run crashed in {doing}:\n\n{error}"
     finally:
         world.close()
     return None
+
+
+# Dry run arguments. Each argument gets a plain value, messy forms an agent might send, and other
+# valid choices; argument names decide which kind of value fits.
+MAX_IDS = 30
+MAX_ID_COMBOS = 30  # only when a tool takes two or more ids
+# "AR-1", "INV_2041", or a bare number such as invoice "2417" that is not part of an amount or date.
+ID_TOKEN = re.compile(r"\b[A-Za-z]+[-_#]?\d[\w-]*|(?<![\w$.,/-])\d{3,}(?![\w/-]|[.,]\d)")
+ID_NAME = re.compile(r"(^|_)(id|no|num|number|ref|reference)$|id$", re.I)
+MONEY_NAME = re.compile(
+    r"amount|price|total|cost|fee|credit|debit|payment|balance|wage|salary", re.I
+)
+DATE_NAME = re.compile(r"date|day|when|until|deadline", re.I)
+TEXT_NAME = re.compile(
+    r"note|reason|text|message|description|memo|evidence|comment|body|subject|detail|summary",
+    re.I,
+)
+
+
+def _remember_ids(seen: dict[str, None], text: str) -> None:
+    for token in ID_TOKEN.findall(text):
+        seen.pop(token, None)
+        seen[token] = None
+
+
+def _values(name: str, spec: dict[str, Any], date: str) -> tuple[Any, list[Any], list[Any]] | None:
+    """(plain value, messy forms, other valid choices), or None for an id-like argument."""
+    kind = spec.get("type")
+    if isinstance(spec.get("enum"), list) and spec["enum"]:
+        return spec["enum"][0], [], spec["enum"][1:]
+    if kind == "boolean":
+        return True, [], [False]
+    if kind in ("array", "object"):
+        return ([] if kind == "array" else {}), [], []
+    if ID_NAME.search(name):
+        return None
+    if MONEY_NAME.search(name) or "$" in str(spec.get("description", "")):
+        return "10.00", ["$10.00", "1,000.00", 10], []
+    if kind == "integer":
+        return 1, ["1"], []
+    if kind == "number":
+        return 10, ["10"], []
+    if DATE_NAME.search(name):
+        return date, ["tomorrow"], []
+    if TEXT_NAME.search(name):
+        return "Dry run test.", [], []
+    return None
+
+
+def _arg_sets(schema: Any, ids: list[str], date: str) -> list[dict[str, Any]]:
+    """Argument sets for one tool: for each mix of seen ids, the messy forms first (before a plain
+    call uses up the record), then other choices, then required arguments only, then plain."""
+    props = schema.get("properties") if isinstance(schema, dict) else None
+    if not isinstance(props, dict) or not props:
+        return [{}]
+    required = set(schema.get("required") or [])
+    values = {n: _values(n, s if isinstance(s, dict) else {}, date) for n, s in props.items()}
+    id_fields = [n for n, v in values.items() if v is None]
+    combos = list(itertools.islice(itertools.product(ids, repeat=len(id_fields)), 10_000))
+    if len(id_fields) > 1 and len(combos) > MAX_ID_COMBOS:
+        combos = random.Random(0).sample(combos, MAX_ID_COMBOS)
+    plain = {n: v[0] for n, v in values.items() if v is not None}
+    messy = [{n: m} for n, v in values.items() if v is not None for m in v[1]]
+    others = [{n: o} for n, v in values.items() if v is not None for o in v[2]]
+    sets = []
+    for combo in combos:
+        base = {**plain, **dict(zip(id_fields, combo, strict=True))}
+        sets += [{**base, **change} for change in messy + others]
+        sets += [{n: base[n] for n in base if n in required}, base]
+    unique = {json.dumps(args, sort_keys=True): args for args in sets}
+    return list(unique.values())
 
 
 def _write_files(text: str, run_dir: Path, usage: dict[str, Any]) -> str | None:

@@ -23,9 +23,10 @@ main prompt  (one business: "a one-room bike repair shop in Eugene, Oregon ...")
     |
 generate: an LLM writes the world as code (world.py) and its agents (prompts.json)
     |
-dry run: the world's code runs every day with no agents; a crash goes back to the LLM to fix
+dry run: the world's code runs every day, every tool is called with plain and messy
+         arguments; a crash goes back to the LLM to fix
     |
-simulate, day by day:
+simulate, day by day from the prompt's start date to its end date:
     the world's automated code runs (settlements, autopay, interest, statement closes)
     the agents with something to do today act by calling other entities' tools
     the world's code allows, rejects or delays each call
@@ -58,14 +59,15 @@ improve (not built): findings patch world.py or rewrite one agent's prompt, then
 ```
 uv sync
 uv run pytest -q                                                  # offline tests
-uv run --env-file .env worldgen examples/bike_shop/PROMPT.md --days 7
+uv run --env-file .env worldgen examples/bike_shop/PROMPT.md
 ```
+
+A run covers exactly the time range written in the prompt. To run fewer days, shorten the prompt's range.
 
 Models go through [OpenRouter](https://openrouter.ai/), so `.env` needs `OPENROUTER_API_KEY`.
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| `--days` | `7` | Days to simulate from the world's first day |
 | `--world-model` | `z-ai/glm-5.3` | Writes the world |
 | `--agent-model` | `z-ai/glm-5.3-flash` | Plays the agents |
 | `--fix-rounds` | `5` | Times a crashing world goes back to be fixed |

@@ -9,7 +9,7 @@ from typing import Any
 
 from worldgen.llm import Message, chat
 from worldgen.log import RunLog
-from worldgen.world import World, WorldError
+from worldgen.world import MAX_DAYS, World, WorldError
 
 TURN_RULES = """\
 Each turn is one day. You act only through your tools, and you know only what your status, \
@@ -23,12 +23,12 @@ RECENT_DAYS = 3
 
 def simulate(
     run_dir: Path,
-    days: int,
     model: str,
     log: RunLog,
     llm: Callable[..., tuple[Message, dict[str, Any]]] = chat,
 ) -> dict[str, Any]:
-    """Run the world for `days` days and save its records. Return a summary for run.json."""
+    """Run the world from start() until next_day() returns None, saving its records each day.
+    Return a summary for run.json."""
     agents = json.loads((run_dir / "prompts.json").read_text())["agents"]
     notepads = {agent_id: agent.get("notepad", "") for agent_id, agent in agents.items()}
     recent: dict[str, list[tuple[str, str]]] = {agent_id: [] for agent_id in agents}
@@ -125,7 +125,10 @@ def simulate(
                     try:
                         result = str(world_call("call_tool", agent, name, args))
                     except WorldError as error:
-                        result = "Error: that call failed inside the world's code."
+                        # The traceback's last line names the problem (e.g. a "$95.00" it could
+                        # not parse), so the agent can change its arguments instead of retrying.
+                        last = (str(error).strip().splitlines() or ["unknown error"])[-1]
+                        result = f"Error: the world's code crashed on this call: {last[:300]}"
                         event["crash"] = str(error)
                         bump("crashes")
                 event.update(args=args, why=why, result=result)
@@ -150,12 +153,14 @@ def simulate(
             }
         )
 
+    def save_records() -> None:
+        records = world.call("records")
+        (run_dir / "records.json").write_text(json.dumps(records, indent=1, default=str))
+
     try:
         date = world.call("start")
         summary["first_date"] = date
-        for day in range(days):
-            if day:
-                date = world.call("next_day")
+        for _ in range(MAX_DAYS):
             raw_acting = world.call("agents_today")
             if not isinstance(raw_acting, list):
                 raise WorldError(f"agents_today() must return a list, got {raw_acting!r}")
@@ -168,10 +173,14 @@ def simulate(
                 with ThreadPoolExecutor(max_workers=min(8, len(acting))) as pool:
                     list(pool.map(safe_turn, acting, [date] * len(acting)))
             summary["last_date"] = date
-            (run_dir / "records.json").write_text(
-                json.dumps(world.call("records"), indent=1, default=str)
-            )
+            save_records()
             (run_dir / "notepads.json").write_text(json.dumps(notepads, indent=1))
+            date = world.call("next_day")
+            if date is None:
+                save_records()  # with the last day's closing work
+                break
+        else:
+            raise WorldError(f"next_day() still returned a date after {MAX_DAYS} days")
     except WorldError as error:
         bump("crashes")
         summary["status"] = "stopped: the world's code crashed"

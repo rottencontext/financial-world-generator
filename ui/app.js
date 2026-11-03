@@ -276,7 +276,6 @@ function renderSummary() {
   const last = run.last_date ?? d.days[d.days.length - 1]?.date;
   const facts = [];
   if (first) facts.push(fact("Simulated", `${rangeLabel(first, last)}  (${d.days.length} ${d.days.length === 1 ? "day" : "days"})`));
-  if (run.days != null) facts.push(fact("Days asked", run.days));
   if (generated) facts.push(fact("Dry run", generated));
   if (d.days.length || run.calls != null) {
     facts.push(fact("Agent calls", calls));

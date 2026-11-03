@@ -78,13 +78,13 @@ The world's code answers the runner's questions:
 
 ### Three speeds per business
 
-Running a full year of daily agent turns is expensive when `world.py` still has bugs, so each world is trained in three phases:
+Running a full year of daily agent turns is expensive when `world.py` still has bugs, so each world is trained in three phases. A run always covers exactly the prompt's time range, so a phase sets its horizon by setting the prompt's end date:
 
 | Phase | Horizon | What runs | What updates | Goal before moving on |
 | :--- | :--- | :--- | :--- | :--- |
-| **1. Smoke test** | **7 days** (includes a weekend and month start) | Automated code + 1–2 test turns per agent | `world.py` only | Zero crashes; Day 1 in-transit items settle; tools check permissions and return clear rejection reasons. |
-| **2. Short window** | **35 days** (crosses a month-end cutoff) | Full daily loop + Judge + Improve | `world.py` and `prompts.json` | Statements close; payouts and card swipes cross month-end cutoffs; routine bills, payroll, and at least one messy story work. |
-| **3. Full run** | **Full target range** (12–18 months) | Full daily loop + Judge + Improve | Mostly `prompts.json` (and small `world.py` fixes) | Annual scale, cash trajectory, and long-horizon stories match the business prompt. |
+| **1. Smoke test** | **7 days:** the end date is 6 days after the start date (includes a weekend and month start) | Automated code + 1–2 test turns per agent | `world.py` only | Zero crashes; Day 1 in-transit items settle; tools check permissions and return clear rejection reasons. |
+| **2. Short window** | **35 days:** the end date is 34 days after the start date (crosses a month-end cutoff) | Full daily loop + Judge + Improve | `world.py` and `prompts.json` | Statements close; payouts and card swipes cross month-end cutoffs; routine bills, payroll, and at least one messy story work. |
+| **3. Full run** | **The prompt's full time range** (12–18 months) | Full daily loop + Judge + Improve | Mostly `prompts.json` (and small `world.py` fixes) | Annual scale, cash trajectory, and long-horizon stories match the business prompt. |
 
 ### Experiments
 

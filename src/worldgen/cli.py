@@ -1,4 +1,4 @@
-"""worldgen run PROMPT_FILE: generate a world from the prompt and simulate it."""
+"""worldgen PROMPT_FILE: generate a world from the prompt and simulate the prompt's time range."""
 
 import json
 from datetime import datetime
@@ -17,7 +17,6 @@ app = typer.Typer(add_completion=False)
 @app.command()
 def run(
     prompt_file: Path,
-    days: Annotated[int, typer.Option(help="Days to simulate from the world's first day.")] = 7,
     out: Annotated[Path | None, typer.Option(help="Default: worlds/<prompt>/<time>.")] = None,
     world_model: Annotated[str, typer.Option(help="Writes the world.")] = "z-ai/glm-5.3",
     agent_model: Annotated[str, typer.Option(help="Plays the agents.")] = "z-ai/glm-5.3-flash",
@@ -30,13 +29,12 @@ def run(
     log = RunLog(run_dir / "log.jsonl")
     summary: dict[str, object] = {
         "prompt": str(prompt_file),
-        "days": days,
         "world_model": world_model,
         "agent_model": agent_model,
     }
     try:
-        if generate(prompt_text, run_dir, days, world_model, log, fix_rounds):
-            summary.update(simulate(run_dir, days, agent_model, log))
+        if generate(prompt_text, run_dir, world_model, log, fix_rounds):
+            summary.update(simulate(run_dir, agent_model, log))
         else:
             summary["status"] = "stopped: the world kept crashing in the dry run"
     except Exception as error:

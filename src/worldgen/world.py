@@ -11,6 +11,10 @@ from typing import Any
 
 HOST = Path(__file__).with_name("host.py")
 
+# A run covers the main prompt's time range: next_day() returns None after its last day.
+# A world still returning dates after this many days is broken, not long.
+MAX_DAYS = 3660
+
 # macOS sandbox: no network, writes only inside the run folder.
 PROFILE = """(version 1)
 (allow default)
