@@ -1,12 +1,10 @@
 # Ozark Ridge Freight: a small trucking company
 
-This is the main prompt for a world from another industry, run on the same engine as `examples/saas_startup` with no code change. Amounts, names and dates are examples; a generated world matches when it shows the same kinds of events.
-
 ## The company and the time frame
 
 - **Business:** Ozark Ridge Freight LLC, a dry-van carrier in Springfield, Missouri, with 6 tractors and 8 trailers. It hauls general freight across the Midwest and South, about 70% for freight brokers and 30% for direct shippers. Revenue is about $1.6 million a year; margins are thin, and cash is always tight because customers pay 30-45 days after delivery while fuel and drivers are paid every week.
 - **Time range:** 2024-01-01 to 2024-12-31, currency USD.
-- **History before the start:** founded in 2019 by Maria Delgado, who drove for ten years first. It has factored its broker invoices with Ironbridge Freight Funding since 2021, so on day one about forty invoices are already purchased and unpaid, with advances outstanding and a reserve balance building. Four tractors are financed and two are paid off. The fuel card statement for the last week of December awaits its autopay, drivers' fuel purchases from December 30-31 haven't posted, and a few checks written in the last week of December haven't cleared.
+- **History before the start:** founded in 2019 by Maria Delgado, who drove for ten years first. It has factored its broker invoices with Ironbridge Freight Funding since 2021, so on 2024-01-01 about forty invoices are already purchased and unpaid, with advances outstanding and a reserve balance building. Four tractors are financed and two are paid off. The fuel card statement for the last week of December awaits its autopay, drivers' fuel purchases from December 30-31 haven't posted, and a few checks written in the last week of December haven't cleared.
 
 ## Institutions (the only sources of data)
 
