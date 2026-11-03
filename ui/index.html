@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Worlds viewer</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="bar-inner">
+      <span class="brand">Worlds</span>
+      <label class="picker">
+        <span class="sr-only">Run</span>
+        <select id="run-select" aria-label="World run"></select>
+      </label>
+      <button id="refresh" type="button" title="Reload the run list and this run">Refresh</button>
+      <span id="live" class="pill live" hidden>live</span>
+    </div>
+  </header>
+  <main class="page">
+    <section id="summary"></section>
+    <nav id="tabs" class="tabs" role="tablist" aria-label="Views"></nav>
+    <section id="view"></section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
