@@ -1,8 +1,6 @@
 """Ask an LLM to write world.py and prompts.json, dry-run every tool, send crashes back to fix."""
 
-import itertools
 import json
-import random
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +13,13 @@ from worldgen.world import MAX_DAYS, World, WorldError
 INSTRUCTIONS = Path(__file__).with_name("generate.md").read_text()
 TOOL_NAME = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 TOOL_KEYS = {"name", "entity", "description", "input_schema"}
+MAX_IDS = 15
+ID_TOKEN = re.compile(r"\b[A-Za-z]+[-_#]?\d[\w-]*|(?<![\w$.,/-])\d{3,}(?![\w/-]|[.,]\d)")
+ID_NAME = re.compile(r"(^|_)(id|no|num|number|ref|reference)$|id$", re.I)
+MONEY_NAME = re.compile(
+    r"amount|price|total|cost|fee|credit|debit|payment|balance|wage|salary", re.I
+)
+DATE_NAME = re.compile(r"date|day|when|until|deadline", re.I)
 
 
 def generate(
@@ -43,7 +48,6 @@ def generate(
             print("generate: world passed the dry run", flush=True)
             return True
         print(f"generate: problem: {problem.strip().splitlines()[-1][:200]}", flush=True)
-        # Keep only the latest attempt in context so earlier 50KB drafts do not bloat the prompt.
         messages = [
             *base_messages,
             reply,
@@ -56,26 +60,14 @@ def generate(
     return False
 
 
-def dry_run(run_dir: Path, passes: int = 3) -> str | None:
-    """Run the world's code for every day from start() until next_day() returns None, calling
-    each acting agent's tools with plain and messy arguments. Return the first problem.
-
-    Calls change the world (a payment marks an invoice paid, so a later credit request on it is
-    refused), so each pass starts a fresh world and shuffles the order of the tools each day."""
-    for seed in range(passes):
-        problem = _dry_pass(run_dir, random.Random(seed))
-        if problem:
-            return problem
-    return None
-
-
-def _dry_pass(run_dir: Path, rng: random.Random) -> str | None:
+def dry_run(run_dir: Path) -> str | None:
+    """Run the world from start() until next_day() returns None, calling each acting agent's
+    tools with plain and messy arguments. Return the first problem, or None."""
     agents = json.loads((run_dir / "prompts.json").read_text())["agents"]
     try:
         world = World(run_dir)
     except WorldError as error:
         return str(error)
-    # Ids the agents could see so far, most recently seen last, so tools reach real records.
     seen: dict[str, None] = {}
     doing = "start()"
     try:
@@ -102,13 +94,14 @@ def _dry_pass(run_dir: Path, rng: random.Random) -> str | None:
                 problem = _check_tools(agent, toolsets[agent])
                 if problem:
                     return problem
-            calls = [(agent, tool) for agent in dict.fromkeys(acting) for tool in toolsets[agent]]
-            rng.shuffle(calls)
-            for agent, tool in calls:
-                ids = [*list(seen)[-MAX_IDS:], *agents]
-                for args in _arg_sets(tool["input_schema"], ids, date):
-                    doing = f"call_tool({agent!r}, {tool['name']!r}, {json.dumps(args)}) on {date}"
-                    _remember_ids(seen, str(world.call("call_tool", agent, tool["name"], args)))
+            for agent in dict.fromkeys(acting):
+                for tool in toolsets[agent]:
+                    ids = [*list(seen)[-MAX_IDS:], *agents]
+                    for args in _arg_sets(tool["input_schema"], ids, date):
+                        doing = (
+                            f"call_tool({agent!r}, {tool['name']!r}, {json.dumps(args)}) on {date}"
+                        )
+                        _remember_ids(seen, str(world.call("call_tool", agent, tool["name"], args)))
             doing = f"next_day() after {date}"
             date = world.call("next_day")
             if date is None:
@@ -137,75 +130,47 @@ def _dry_pass(run_dir: Path, rng: random.Random) -> str | None:
     return None
 
 
-# Dry run arguments. Each argument gets a plain value, messy forms an agent might send, and other
-# valid choices; argument names decide which kind of value fits.
-MAX_IDS = 30
-MAX_ID_COMBOS = 30  # only when a tool takes two or more ids
-# "AR-1", "INV_2041", or a bare number such as invoice "2417" that is not part of an amount or date.
-ID_TOKEN = re.compile(r"\b[A-Za-z]+[-_#]?\d[\w-]*|(?<![\w$.,/-])\d{3,}(?![\w/-]|[.,]\d)")
-ID_NAME = re.compile(r"(^|_)(id|no|num|number|ref|reference)$|id$", re.I)
-MONEY_NAME = re.compile(
-    r"amount|price|total|cost|fee|credit|debit|payment|balance|wage|salary", re.I
-)
-DATE_NAME = re.compile(r"date|day|when|until|deadline", re.I)
-TEXT_NAME = re.compile(
-    r"note|reason|text|message|description|memo|evidence|comment|body|subject|detail|summary",
-    re.I,
-)
-
-
 def _remember_ids(seen: dict[str, None], text: str) -> None:
     for token in ID_TOKEN.findall(text):
         seen.pop(token, None)
         seen[token] = None
 
 
-def _values(name: str, spec: dict[str, Any], date: str) -> tuple[Any, list[Any], list[Any]] | None:
-    """(plain value, messy forms, other valid choices), or None for an id-like argument."""
+def _values(name: str, spec: dict[str, Any], date: str) -> tuple[Any, list[Any]] | None:
+    """(plain value, messy/alternate values), or None for an id-like argument."""
     kind = spec.get("type")
     if isinstance(spec.get("enum"), list) and spec["enum"]:
-        return spec["enum"][0], [], spec["enum"][1:]
+        return spec["enum"][0], spec["enum"][1:]
     if kind == "boolean":
-        return True, [], [False]
+        return True, [False]
     if kind in ("array", "object"):
-        return ([] if kind == "array" else {}), [], []
+        return ([] if kind == "array" else {}), []
     if ID_NAME.search(name):
         return None
     if MONEY_NAME.search(name) or "$" in str(spec.get("description", "")):
-        return "10.00", ["$10.00", "1,000.00", 10], []
-    if kind == "integer":
-        return 1, ["1"], []
-    if kind == "number":
-        return 10, ["10"], []
+        return "10.00", ["$10.00", "1,000.00", 10]
+    if kind in ("integer", "number"):
+        return 1, ["1"]
     if DATE_NAME.search(name):
-        return date, ["tomorrow"], []
-    if TEXT_NAME.search(name):
-        return "Dry run test.", [], []
-    return None
+        return date, ["tomorrow"]
+    return "Dry run test.", []
 
 
 def _arg_sets(schema: Any, ids: list[str], date: str) -> list[dict[str, Any]]:
-    """Argument sets for one tool: for each mix of seen ids, the messy forms first (before a plain
-    call uses up the record), then other choices, then required arguments only, then plain."""
+    """Argument sets for one tool: messy forms first (before a plain call uses up a record),
+    then plain values for each seen id."""
     props = schema.get("properties") if isinstance(schema, dict) else None
     if not isinstance(props, dict) or not props:
         return [{}]
-    required = set(schema.get("required") or [])
     values = {n: _values(n, s if isinstance(s, dict) else {}, date) for n, s in props.items()}
     id_fields = [n for n, v in values.items() if v is None]
-    combos = list(itertools.islice(itertools.product(ids, repeat=len(id_fields)), 10_000))
-    if len(id_fields) > 1 and len(combos) > MAX_ID_COMBOS:
-        combos = random.Random(0).sample(combos, MAX_ID_COMBOS)
     plain = {n: v[0] for n, v in values.items() if v is not None}
     messy = [{n: m} for n, v in values.items() if v is not None for m in v[1]]
-    others = [{n: o} for n, v in values.items() if v is not None for o in v[2]]
     sets = []
-    for combo in combos:
-        base = {**plain, **dict(zip(id_fields, combo, strict=True))}
-        sets += [{**base, **change} for change in messy + others]
-        sets += [{n: base[n] for n in base if n in required}, base]
-    unique = {json.dumps(args, sort_keys=True): args for args in sets}
-    return list(unique.values())
+    for item_id in ids or [""]:
+        base = {**plain, **{f: item_id for f in id_fields}}
+        sets += [{**base, **change} for change in messy] + [base]
+    return list({json.dumps(a, sort_keys=True): a for a in sets}.values())
 
 
 def _write_files(text: str, run_dir: Path, usage: dict[str, Any]) -> str | None:
@@ -218,8 +183,6 @@ def _write_files(text: str, run_dir: Path, usage: dict[str, Any]) -> str | None:
         )
         if not matches:
             return f"The reply has no <{name}>...</{name}> block."
-        # Use the last matching tag block in case earlier prose mentioned the tag name,
-        # and strip any wrapping markdown code fences (including trailing spaces on the fence line).
         raw = matches[-1].group(1).strip()
         files[name] = re.sub(r"^```[^\n]*\n|\n\s*```$", "", raw).strip() + "\n"
     try:

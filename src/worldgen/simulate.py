@@ -1,4 +1,4 @@
-"""The day loop: the world's automated code runs, then the agents it wakes act through its tools."""
+"""The day loop: each day the agents that wake act through the world's tools, then the clock advances."""
 
 import json
 import threading
@@ -177,7 +177,6 @@ def simulate(
             (run_dir / "notepads.json").write_text(json.dumps(notepads, indent=1))
             date = world.call("next_day")
             if date is None:
-                save_records()  # with the last day's closing work
                 break
         else:
             raise WorldError(f"next_day() still returned a date after {MAX_DAYS} days")
