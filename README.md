@@ -64,12 +64,14 @@ uv run --env-file .env worldgen examples/bike_shop/PROMPT.md
 
 A run covers exactly the time range written in the prompt. To run fewer days, shorten the prompt's range.
 
-Models go through [OpenRouter](https://openrouter.ai/), so `.env` needs `OPENROUTER_API_KEY`.
+Models go through [OpenRouter](https://openrouter.ai/) by default, so `.env` needs `OPENROUTER_API_KEY`. `--world-backend claude` or `--agent-backend claude` sends that stage's calls through the [`claude` CLI](https://code.claude.com/docs/en/headless) instead, so whatever `claude` is logged in as pays: a Claude Pro/Max subscription (within its rate limits) or its API key. The cost in `run.json` is then the list-price equivalent, not a bill.
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| `--world-model` | `z-ai/glm-5.3` | Writes the world |
-| `--agent-model` | `z-ai/glm-5.3-flash` | Plays the agents |
+| `--world-backend` | `openrouter` | Who answers the world-writing call: `openrouter` or `claude` |
+| `--world-model` | `z-ai/glm-5.3`, or `opus` with claude | Writes the world |
+| `--agent-backend` | `openrouter` | Who answers the agents' calls: `openrouter` or `claude` |
+| `--agent-model` | `z-ai/glm-5.3-flash`, or `sonnet` with claude | Plays the agents |
 | `--fix-rounds` | `5` | Times a crashing world goes back to be fixed |
 | `--out` | `worlds/<prompt>/<time>` | Where the run is saved |
 

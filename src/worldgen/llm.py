@@ -10,6 +10,7 @@ from typing import Any
 import httpx2 as httpx
 
 URL = "https://openrouter.ai/api/v1/chat/completions"
+MAX_TOKENS = 128000  # reasoning counts against it; the claude CLI backend uses it too
 
 Message = dict[str, Any]
 
@@ -32,7 +33,7 @@ def chat(
     body: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "max_tokens": 64000,
+        "max_tokens": MAX_TOKENS,
         "reasoning": {"effort": effort},
         "usage": {"include": True},
     }
@@ -47,7 +48,7 @@ def chat(
                 URL,
                 headers={"Authorization": f"Bearer {key}"},
                 json=body,
-                timeout=httpx.Timeout(900, connect=30),
+                timeout=httpx.Timeout(1800, connect=30),
             )
         except httpx.RequestError as error:
             if last:
