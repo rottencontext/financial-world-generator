@@ -73,12 +73,12 @@ Models go through [OpenRouter](https://openrouter.ai/) by default, so `.env` nee
 | `--agent-backend` | `openrouter` | Who answers the agents' calls: `openrouter` or `claude` |
 | `--agent-model` | `z-ai/glm-5.3-flash`, or `sonnet` with claude | Plays the agents |
 | `--fix-rounds` | `5` | Times a crashing world goes back to be fixed |
-| `--out` | `worlds/<prompt>/<time>` | Where the run is saved |
+| `--out` | `worlds/<prompt>/<time>_world-<model>_agents-<model>` | Where the run is saved |
 
 ## What a run produces
 
 ```
-worlds/<prompt>/<time>/
+worlds/<prompt>/<time>_world-<model>_agents-<model>/      e.g. worlds/studio_payments_7day/20261105-183950_world-fable_agents-opus/
   world.py           the world's code
   prompts.json       the agents
   log.jsonl          every model call, tool call, rejection and crash, in order

@@ -1,6 +1,7 @@
 """The command line: which backend answers each stage, and the model each one defaults to."""
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,3 +65,13 @@ def test_a_named_model_overrides_the_claude_default(tmp_path: Path, stages: dict
 
     assert stages["generate"] == ("z-ai/glm-5.3", llm.chat)
     assert stages["simulate"] == ("fable", claude_cli.chat)
+
+
+def test_the_default_folder_names_the_time_and_both_models() -> None:
+    started = datetime(2026, 11, 5, 18, 39, 50)
+
+    assert cli.run_name("fable", "opus", started) == "20261105-183950_world-fable_agents-opus"
+    assert (
+        cli.run_name("anthropic/claude-opus-5.5", "z-ai/glm-5.3-flash", started)
+        == "20261105-183950_world-claude-opus-5.5_agents-glm-5.3-flash"
+    )

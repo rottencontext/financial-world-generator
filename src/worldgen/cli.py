@@ -34,10 +34,20 @@ DEFAULT_MODELS = {  # (writes the world, plays the agents)
 }
 
 
+def run_name(world_model: str, agent_model: str, now: datetime) -> str:
+    """The default run folder: when the run started, who wrote the world and who played the agents,
+    e.g. 20261105-183950_world-fable_agents-opus. A model id keeps only its last path segment."""
+    world, agents = (model.rsplit("/", 1)[-1] for model in (world_model, agent_model))
+    return f"{now:%Y%m%d-%H%M%S}_world-{world}_agents-{agents}"
+
+
 @app.command()
 def run(
     prompt_file: Path,
-    out: Annotated[Path | None, typer.Option(help="Default: worlds/<prompt>/<time>.")] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option(help="Default: worlds/<prompt>/<time>_world-<model>_agents-<model>."),
+    ] = None,
     world_backend: Annotated[
         Backend, typer.Option(help="Answers the world-writing call.")
     ] = Backend.openrouter,
@@ -63,7 +73,7 @@ def run(
     agent_model = agent_model or DEFAULT_MODELS[agent_backend][1]
     prompt_text = prompt_file.read_text()
     name = prompt_file.stem if prompt_file.stem != "PROMPT" else prompt_file.parent.name
-    run_dir = out or Path("worlds") / name / datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir = out or Path("worlds") / name / run_name(world_model, agent_model, datetime.now())
     run_dir.mkdir(parents=True, exist_ok=False)
     log = RunLog(run_dir / "log.jsonl")
     summary: dict[str, object] = {
