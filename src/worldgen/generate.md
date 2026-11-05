@@ -53,11 +53,19 @@ The runner gives every agent a built-in `memory` tool (`add_plan`, `update_plan`
 
 ### Handling Messy Tool Arguments
 
-Agents write tool arguments, and they are often messy. `call_tool` must never raise an unhandled Python exception, and must never leak Python runtime errors (`TypeError`, `ValueError`, `KeyError`, `slice indices must be integers`) as rejection strings:
+Agents write tool arguments, and they are often messy. Reject a bad argument with a plain message; never let a bad argument reach `Decimal(...)`, `int(...)`, `date.fromisoformat(...)` or a list slice unparsed:
 
 - **Money:** parse every amount with one helper that accepts `"1200"`, `"1,200.00"`, `"$1,200.00"` and plain numbers, by stripping `$`, `,` and spaces before `Decimal(...)`. On anything else, return a plain message such as `"Give the amount in dollars, e.g. 620.00."`
-- **Integers / limits:** coerce integer arguments like `limit` safely (`int(str(v).strip())` inside a `try/except`) before slicing a list.
+- **Integers / limits:** coerce integer arguments like `limit` with one helper (`int(str(v).strip())`) before slicing a list.
 - **Dates:** keep every date inside the world as a `datetime.date`. Convert to and from `"YYYY-MM-DD"` only at the edges: tool arguments, results, statuses, and `records()`.
+
+### Bugs Must Crash
+
+A bug in `world.py` (a missing function, a `.lower()` on a `Decimal`, a wrong key) must raise, so the dry run sees the traceback and the code gets fixed before any agent runs. Do not hide crashes:
+
+- Only the three parsing helpers (money, integer, date) may use `try/except`, and they may catch only `ValueError`, `InvalidOperation` and `TypeError`. The runner rejects any `except Exception`, `except BaseException` or bare `except` before it even runs the file.
+- No `try/except` around tool dispatch in `call_tool`, and no catch-all result such as `"That didn't work: ..."`.
+- Every name in `tools(agent)` must have a working implementation. An unknown tool name is a bug, not a message.
 
 ## The interface the runner calls
 

@@ -14,7 +14,7 @@ from worldgen.simulate import simulate
 
 WORLD = """
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 END = date(2021, 1, 4)  # the main prompt's last day: Friday to Monday
 today = None
@@ -37,7 +37,7 @@ def tools(agent):
 def money(x):
     try:
         return Decimal(str(x).replace("$", "").replace(",", "").strip())
-    except Exception:
+    except (ValueError, InvalidOperation, TypeError):
         return None
 
 def call_tool(agent, name, args):
@@ -398,3 +398,75 @@ def test_simulate_stops_a_world_that_never_ends(
     log.close()
     assert summary["status"] == "stopped: the world's code crashed"
     assert summary["last_date"] == "2021-01-03"
+
+
+def test_generate_rejects_a_broad_except_before_the_dry_run(tmp_path: Path) -> None:
+    hidden = {
+        "role": "assistant",
+        "content": generated_reply()["content"].replace(
+            "except (ValueError, InvalidOperation, TypeError):", "except Exception:"
+        ),
+    }
+    log = RunLog(tmp_path / "log.jsonl")
+    llm = fake_llm([hidden, generated_reply()])
+    assert generate("A tiny company.", tmp_path, "m", log, llm=llm)
+    events = [json.loads(line) for line in (tmp_path / "log.jsonl").read_text().splitlines()]
+    problem = events[0]["problem"]
+    assert "hides crashes" in problem and "except Exception:" in problem
+    assert (
+        not (tmp_path / "world.py").exists()
+        or "except Exception" not in (tmp_path / "world.py").read_text()
+    )
+    assert events[1]["problem"] is None
+
+
+def test_generate_rejects_a_bare_except(tmp_path: Path) -> None:
+    bare = generated_reply()["content"].replace(
+        "except (ValueError, InvalidOperation, TypeError):", "except:"
+    )
+    log = RunLog(tmp_path / "log.jsonl")
+    assert not generate(
+        "A tiny company.",
+        tmp_path,
+        "m",
+        log,
+        fix_rounds=0,
+        llm=fake_llm([{"role": "assistant", "content": bare}]),
+    )
+    events = [json.loads(line) for line in (tmp_path / "log.jsonl").read_text().splitlines()]
+    assert "hides crashes" in events[0]["problem"]
+
+
+def test_dry_run_fails_a_tool_that_calls_a_missing_function(tmp_path: Path) -> None:
+    write_world(tmp_path, WORLD.replace("amount = money(", "amount = _find_invoice("))
+    problem = dry_run(tmp_path)
+    assert problem is not None
+    assert "call_tool('sam', 'bank_transfer'" in problem
+    assert "_find_invoice" in problem and "NameError" in problem
+
+
+def test_dry_run_fails_a_tool_that_returns_a_python_error_as_text(tmp_path: Path) -> None:
+    write_world(
+        tmp_path,
+        WORLD.replace(
+            '    amount = money(args.get("amount"))',
+            "    try:\n        _refund(args)\n    except NameError as e:\n"
+            "        return 'That didn\\'t work: %s' % e\n    amount = money(args.get(\"amount\"))",
+        ),
+    )
+    problem = dry_run(tmp_path)
+    assert problem is not None
+    assert "instead of crashing" in problem and "_refund" in problem
+
+
+def test_dry_run_fails_an_unknown_tool_message(tmp_path: Path) -> None:
+    write_world(
+        tmp_path,
+        WORLD.replace(
+            "def call_tool(agent, name, args):\n",
+            "def call_tool(agent, name, args):\n    if name == 'bank_transfer':\n"
+            "        return 'No tool named bank_transfer is available today.'\n",
+        ),
+    )
+    problem = dry_run(tmp_path)
+    assert problem is not None and "unknown-tool" in problem

@@ -1,5 +1,6 @@
 """Ask an LLM to write world.py and prompts.json, dry-run every tool, send crashes back to fix."""
 
+import ast
 import json
 import re
 from collections.abc import Callable
@@ -20,6 +21,13 @@ MONEY_NAME = re.compile(
     r"amount|price|total|cost|fee|credit|debit|payment|balance|wage|salary", re.I
 )
 DATE_NAME = re.compile(r"date|day|when|until|deadline", re.I)
+BROAD_EXCEPT = {"Exception", "BaseException"}
+HIDDEN_CRASH = re.compile(
+    r"Traceback \(most recent call last\)|is not defined|object has no attribute|"
+    r"object is not (subscriptable|iterable|callable)|unsupported operand|"
+    r"^\s*(That didn't work|Unknown tool|No tool named|No such tool)",
+    re.I,
+)
 
 
 def generate(
@@ -101,7 +109,14 @@ def dry_run(run_dir: Path) -> str | None:
                         doing = (
                             f"call_tool({agent!r}, {tool['name']!r}, {json.dumps(args)}) on {date}"
                         )
-                        _remember_ids(seen, str(world.call("call_tool", agent, tool["name"], args)))
+                        result = str(world.call("call_tool", agent, tool["name"], args))
+                        if HIDDEN_CRASH.search(result):
+                            return (
+                                f"{doing} returned a Python error or unknown-tool message instead "
+                                f"of crashing or doing the work:\n\n{result[:500]}\n\n"
+                                "Fix the tool so the call works, and let real bugs raise."
+                            )
+                        _remember_ids(seen, result)
             doing = f"next_day() after {date}"
             date = world.call("next_day")
             if date is None:
@@ -205,8 +220,32 @@ def _write_files(text: str, run_dir: Path, usage: dict[str, Any]) -> str | None:
                 return f"prompts.json: agent {agent_id!r} 'notes' must be a list."
     except (ValueError, KeyError, AttributeError, TypeError) as error:
         return f'prompts.json is not {{"agents": {{id: {{...}}}}}}: {error}'
+    problem = _broad_except(files["world.py"])
+    if problem:
+        return problem
     for name, content in files.items():
         (run_dir / name).write_text(content)
+    return None
+
+
+def _broad_except(source: str) -> str | None:
+    """The first `except Exception`, `except BaseException` or bare `except` in world.py."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as error:
+        return f"world.py has a syntax error on line {error.lineno}: {error.msg}"
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ExceptHandler):
+            continue
+        kinds = node.type.elts if isinstance(node.type, ast.Tuple) else [node.type]
+        names = [ast.unparse(k) for k in kinds if k is not None]
+        if node.type is None or BROAD_EXCEPT & set(names):
+            line = source.splitlines()[node.lineno - 1].strip()
+            return (
+                f"world.py line {node.lineno} hides crashes: `{line}`. Catch only ValueError, "
+                "InvalidOperation or TypeError, and only inside the money, integer and date "
+                "parsing helpers. Everywhere else, let bugs raise so the dry run can find them."
+            )
     return None
 
 
