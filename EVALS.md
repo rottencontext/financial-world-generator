@@ -1,19 +1,19 @@
 # Evaluations for `worldgen`
 
-End Close reconciles records across a payment processor, a bank, and a company's own ledger, then works the exceptions. In `worldgen`, **every actor is an agent in `prompts.json`** — customers, merchants/studios, vendors, internal staff, and the institutions themselves (processors, banks, networks, accounting systems, payroll providers) — and **`world.py` is the shared state, contract registry, and ledger toolset** (`next_day()` only advances the calendar date).
+End Close reconciles records across a payment processor, a bank, and a company's own ledger, then works the timing, batching, and fee-netting differences. In `worldgen`, **every actor is an agent in `prompts.json`** — customers, merchants/studios, vendors, internal staff, and the institutions themselves (processors, banks, networks, accounting systems, payroll providers) — and **`world.py` is the shared state, contract registry, and ledger toolset** (`next_day()` only advances the calendar date).
 
 For generated worlds to be useful to End Close, an evaluation suite must answer four questions on every run:
 
 1. **Are the books right?** Every balance comes from rows, running balances recompute, grouping rows equal the sum of their parts, and statuses agree with dates.
 2. **Do the agents follow real contracts and calendars?** Institutions and customers act according to their contracts and published rail rules (2-day card holds, 1–2 day payouts, no bank postings on weekends/holidays, varied customer and merchant personas).
-3. **Is reconciling it hard enough to matter?** A naive amount-and-date matcher leaves a realistic residual of exceptions (70–95% recall), not 100% clean matches and not broken noise.
-4. **Is every exception explainable?** Every mismatch between two institutions traces back to an agent's tool call (or Day 1 in-flight history) in the world's answer key (`truth()`). Zero mismatches come from code bugs or phantom balances.
+3. **Is reconciling it hard enough to matter?** A naive amount-and-date matcher leaves a realistic residual of reconciliation items (70–95% recall from batching, cutoff timing, and fee netting), not 100% trivial 1-to-1 matches and not broken noise.
+4. **Is every difference explainable?** Every difference between two institutions traces back to an agent's tool call (or Day 1 in-flight history) in the world's answer key (`truth()`). Zero mismatches come from code bugs or phantom balances.
 
 ---
 
 ## 1. Prerequisite: The `truth()` Answer Key and Record Conventions
 
-Without a ground-truth link across institutions, an evaluator can only guess which processor transactions belong to which bank deposit or why a company invoice disagrees with a processor charge. Every world therefore implements an eighth runner function, `truth()`, alongside strict record conventions in `records()`.
+Without a ground-truth link across institutions, an evaluator can only guess which processor transactions belong to which bank deposit or why a company invoice differs from a processor net transfer. Every world therefore implements an eighth runner function, `truth()`, alongside strict record conventions in `records()`.
 
 ### Runner Interface Addition
 
@@ -24,7 +24,7 @@ def truth() -> dict:
         "movements": [
             {
                 "id": "mv_0001",
-                "kind": "member_payment",          # or payout, refund, ach_return, dispute, fee, bill...
+                "kind": "member_payment",          # or payout, refund, fee, subscription, bill...
                 "date": "2025-01-01",
                 "amount": "129.00",
                 "records": {
@@ -44,23 +44,23 @@ def truth() -> dict:
         "exceptions": [
             {
                 "id": "ex_0001",
-                "pair": ["stripe", "repflow_db"],  # the two sources that disagree or fail naive matching
-                "category": "unreversed_refund",   # cutoff_timing | ach_return | dispute | unreversed_refund |
-                                                   # partial_refund | duplicate | webhook_drift | hand_edit |
-                                                   # bundled_payout | fee_netting | legacy_id | bank_failure
+                "pair": ["stripe", "bank"],        # the two sources that fail naive 1-to-1 matching
+                "category": "fee_netting",         # cutoff_timing | bundled_payout | holiday_weekend_delay |
+                                                   # fee_netting | partial_refund | instant_payout_fee
                 "records": {
                     "stripe.balance_transactions": ["txn_0812"],
-                    "repflow_db.invoices": ["inv_0291"],
+                    "stripe.payouts": ["po_0002"],
+                    "bank.operating_transactions": ["btx_0004"],
                 },
-                "amount": "89.00",
+                "amount": "412.50",
                 "cause": {
                     "kind": "agent",               # "agent" | "history"
-                    "agent": "sam",
-                    "tool": "issue_refund",
-                    "detail": "Sam refunded inv_0291 with reverse_transfer=False",
+                    "agent": "stripe",
+                    "tool": "charge_connect_invoice",
+                    "detail": "Stripe netted December Connect invoice ($412.50) from platform balance",
                 },
-                "explanation": "Sam refunded $89.00 on 2025-01-02 without reversing the studio's transfer; "
-                               "Repflow's platform balance covered the refund.",
+                "explanation": "Stripe deducted its $412.50 December Connect invoice from the platform "
+                               "balance on 2025-01-02 before sweeping the daily payout.",
             },
             ...
         ],
@@ -87,7 +87,7 @@ To let Layer B check the books without hardcoding any particular business:
 |---|---|---|---|
 | **A. Harness health** | Passed cleanly vs. kept with warnings; fix rounds used; wall time and USD cost; tool calls that crash vs. rejections that give a reason | Code (`run.json`, `log.jsonl`) | No |
 | **B. Books** | Every balance comes from rows; running balances recompute; grouping rows equal the sum of their parts; cross-institution settlement delays $\ge 0$ and within plausible windows; statuses agree with dates; no dangling foreign-key IDs | Code (`records.json`) | No (enhanced by `truth()`) |
-| **C. Contract & rail realism** | Institution agents obey rail rules (card 2-day hold, ACH return windows, no weekend/holiday bank postings); customer/counterparty agents produce diverse amounts and payment mix matching the target's `Expectations` block | Code (`records.json` vs. target's `Expectations` block) | No |
+| **C. Contract & rail realism** | Institution agents obey rail rules (card 2-day hold, ACH settlement windows, no weekend/holiday bank postings); customer/counterparty agents produce diverse amounts and payment mix matching the target's `Expectations` block | Code (`records.json` vs. target's `Expectations` block) | No |
 | **D. Reconciliation** | Naive matcher recall/precision across source pairs (`processor <-> bank`, `processor <-> company_db`, `company_db <-> gl`); exception diversity by root cause; **0 unexplained mismatches** | Code + `truth.json` | **Yes** |
 | **E. Pure-agent emergence** | `next_day()` only advances the clock (no hidden RNG loops or hardcoded dates in `world.py`); all institutions, customers, and staff act as agents in `prompts.json`; every post-start movement and exception traces to an agent tool call in `log.jsonl` | Code (`world.py` AST + `prompts.json` + `truth.json` + `log.jsonl`) | **Yes** |
 | **F. Coverage** | Every event kind listed in the target prompt's Section 7 ("Kinds of events") appears in `records.json` with concrete row IDs as evidence | LLM judge (calibrated against human verdicts) | No |
@@ -136,9 +136,9 @@ Compares `records.json` against the structured `Expectations` block at the end o
 
 1. **Role & persona representation:** `prompts.json` defines agents for each institution, internal role, and customer/counterparty archetype described in the prompt, and those agents actively execute tool calls during `simulate()`.
 2. **Payment method mix:** Share of each payment rail (e.g., card vs. ACH) falls within the target's stated band.
-3. **Settlement & return delays (Institution agent accuracy):**
+3. **Settlement & payout delays (Institution agent accuracy):**
    - Card charges: `available_on - created == 2` business days†.
-   - Standard ACH debits: `available_on - created` in `3..5` business days; administrative/NSF returns (`R01`–`R04`) arrive within `2` banking days of settlement†; unauthorized claims (`R10`) arrive up to `60` calendar days later†.
+   - Standard ACH debits: `available_on - created` in `3..5` business days.
    - Payouts: `arrival - submitted` in `1..2` business days† (`0` days for instant payouts†).
    - Holiday & weekend cutoffs: bank agents post `0` standard ACH/payout settlements on weekends and federal holidays†.
 4. **Behavioral diversity across customer & merchant agents:** Different customer and merchant agents exhibit distinct spending/pricing behavior (big spenders vs. casual buyers, flagship merchants vs. small merchants, 1st/15th renewal surges) rather than every agent calling the exact same tool with the exact same dollar amount.
@@ -149,19 +149,19 @@ Compares `records.json` against the structured `Expectations` block at the end o
 
 Evaluates each reconciliation pair declared in the target's `Expectations` block:
 - **Pair 1 (`processor <-> bank`):** e.g., Stripe platform payouts & balance transactions $\leftrightarrow$ Operating bank deposits & debits.
-- **Pair 2 (`processor <-> company_db`):** e.g., Stripe charges, refunds, returns, and connected transfers $\leftrightarrow$ Repflow database invoices and studio payable ledger.
+- **Pair 2 (`processor <-> company_db`):** e.g., Stripe charges, refunds, and connected transfers $\leftrightarrow$ Repflow database invoices and studio payable ledger.
 - **Pair 3 (`company_db / bank <-> gl`):** e.g., Bank transactions & Stripe summaries $\leftrightarrow$ Xero bank feed, reconciliations, and journal entries.
 
 #### 1. Naive Baseline Matcher Score
 Run a standard heuristic matcher over each pair (exact net amount match within $\pm 3$ business days, or exact reference string match):
 - Compute **Precision** and **Recall** against `truth()["movements"]`:
   - **Target recall band: `70%–95%`**.
-  - **$> 95\%$ recall:** Too clean — lacks batching, fee netting, cutoff splits, unreversed refunds, or webhook drift.
+  - **$> 95\%$ recall:** Too clean — lacks batching, fee netting, or cutoff splits.
   - **$< 50\%$ recall:** Broken — amounts, signs, or dates do not line up at all.
 
 #### 2. Exceptions by Root Cause
-Every item that fails the naive matcher (or where two sources disagree at `end_date`) is looked up in `truth()["exceptions"]`:
-- **Root-cause diversity:** Count distinct exception categories present in the run (`cutoff_timing`, `ach_return`, `dispute`, `unreversed_refund`, `partial_refund`, `duplicate_webhook`, `webhook_drift`, `hand_edit`, `fee_netting`, `legacy_id`, `bank_failure`). Must meet the target's minimum distinct causes (e.g., $\ge 5$ in a 7-day run, $\ge 9$ in a full-year run).
+Every item that fails the naive matcher (or where two sources differ due to bundling, fees, or cutoffs at `end_date`) is looked up in `truth()["exceptions"]`:
+- **Root-cause diversity:** Count distinct reconciliation categories present in the run (`cutoff_timing`, `bundled_payout`, `holiday_weekend_delay`, `fee_netting`, `partial_refund`, `instant_payout_fee`). Must meet the target's minimum distinct causes (e.g., $\ge 4$ in a 7-day run, $\ge 5$ in a 60-day or full-year run).
 
 #### 3. Unexplained Mismatches (The Zero-Bug Gate)
 $$\text{unexplained\_mismatches} = \left|\{\text{discrepancies between paired tables}\} \setminus \text{truth()["exceptions"]}\right|$$
@@ -229,10 +229,10 @@ To prevent overfitting the harness to Stripe Connect, the suite spans **5 prompt
 
 | Target | Role | Payment Rails & Institution Agents | Status |
 |---|---|---|---|
-| [`targets/studio_payments`](targets/studio_payments/) | **Dev / Primary** | Stripe Connect agent, card & ACH network agents, Pikes Peak Bank agent, Xero agent, studio owner agents (climbing, yoga, pilates, boxing), member agents (big spenders, 1st/15th renewers, low-balance ACH payers, disputers), Repflow staff agents | **Done** (`Expectations` added) |
-| `targets/payroll_fintech` *(to write)* | **Dev / Core End Close** | Outbound ACH credits (payroll/bill pay), R03/R04 returns, NOC bank-change notices, same-day ACH cutoffs, wires, FBO customer-funds account at a sponsor bank vs. internal sub-ledger | **Next** (closest to End Close's customers) |
-| `targets/property_manager` *(to write)* | **Dev / Multi-Rail** | Resident ACH debits, paper checks deposited in mobile/lockbox batches, NSF bounced checks, security-deposit & rent trust accounts, management fees netted from monthly owner payouts | **Next** |
-| `targets/multi_processor_app` *(to write)* | **Held-Out Test** *(never tune on this)* | Consumer subscription app collecting via Stripe + PayPal + Apple/Google app-store monthly net payouts (after 15%/30% commission), FX conversion, cross-processor refunds & chargebacks | **Next (Held Out)** |
+| [`targets/studio_payments`](targets/studio_payments/) | **Dev / Primary** | Stripe Connect agent, Pikes Peak Bank agent, Xero agent, studio owner agents (climbing, yoga, pilates, boxing), member agents (card & ACH cohorts, 1st/15th renewers, clean refund requesters), Repflow staff agents | **Done** (`Expectations` added) |
+| `targets/payroll_fintech` *(to write)* | **Dev / Core End Close** | Outbound ACH credits (payroll/bill pay), settlement cutoffs, wires, FBO customer-funds account at a sponsor bank vs. internal sub-ledger | **Next** (closest to End Close's customers) |
+| `targets/property_manager` *(to write)* | **Dev / Multi-Rail** | Resident ACH debits, paper checks deposited in mobile/lockbox batches, security-deposit & rent trust accounts, management fees netted from monthly owner payouts | **Next** |
+| `targets/multi_processor_app` *(to write)* | **Held-Out Test** *(never tune on this)* | Consumer subscription app collecting via Stripe + PayPal + Apple/Google app-store monthly net payouts (after 15%/30% commission), FX conversion, cross-processor refunds | **Next (Held Out)** |
 | [`examples/bike_shop`](examples/bike_shop/) & [`targets/brewery_taproom`](targets/brewery_taproom/) | **Regression check** | Small worlds (POS batches, cash drawers, vendor terms, payroll) to ensure harness changes hold across simple and complex businesses | **Done** (add `Expectations`) |
 
 ---
