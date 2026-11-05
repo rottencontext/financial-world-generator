@@ -24,7 +24,7 @@ main prompt  (one business: "a one-room bike repair shop in Eugene, Oregon ...")
 generate: an LLM writes the world as code (world.py) and its agents (prompts.json)
     |
 dry run: the world's code runs every day, every tool is called with plain and messy
-         arguments; a crash goes back to the LLM to fix
+         arguments; a crash goes back to the LLM, which sends edits to fix it
     |
 simulate, day by day from the prompt's start date to its end date:
     the world's automated code runs (settlements, autopay, interest, statement closes)

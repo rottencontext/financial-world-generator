@@ -1,4 +1,7 @@
-"""Ask an LLM to write world.py and prompts.json, dry-run every tool, send crashes back to fix."""
+"""Ask an LLM to write world.py and prompts.json, dry-run every tool, send crashes back to fix.
+
+A fix comes back as find-and-replace edits to the current files, so a small bug costs a short
+reply instead of the whole world written again."""
 
 import ast
 import json
@@ -28,6 +31,28 @@ HIDDEN_CRASH = re.compile(
     r"^\s*(That didn't work|Unknown tool|No tool named|No such tool)",
     re.I,
 )
+FILES = ("world.py", "prompts.json")
+FENCE = re.compile(r"^```[^\n]*\n|\n\s*```$")
+EDIT = re.compile(
+    r'<edit file="([^"]*)">\s*<find>\n?(.*?)\n?</find>\s*<replace>\n?(.*?)\n?</replace>\s*</edit>',
+    re.S,
+)
+FIX_IN_FULL = "Fix it. Reply with both files again in full, in the same tags."
+FIX_BY_EDITS = """\
+Fix it with edits to the files above instead of rewriting them. Send one block per change:
+
+<edit file="world.py">
+<find>
+lines copied exactly from the current file, enough to match one place only
+</find>
+<replace>
+the new lines
+</replace>
+</edit>
+
+Use file="prompts.json" to change prompts.json. Edits apply in order. Fix the cause everywhere \
+it occurs, not only the line in the error. If most of a file has to change, send that file in \
+full in its own tag instead."""
 
 
 def generate(
@@ -44,27 +69,37 @@ def generate(
         {"role": "user", "content": f"Main prompt:\n\n{main_prompt}"},
     ]
     messages = list(base_messages)
+    current: dict[str, str] | None = None  # the latest files, passing or not
     for attempt in range(1 + fix_rounds):
         print(f"generate: attempt {attempt + 1}, waiting for {model}...", flush=True)
         reply, usage = llm(model, messages, effort="medium")
         log.cost(usage)
-        problem = _write_files(reply.get("content") or "", run_dir, usage)
-        if not problem:
-            problem = dry_run(run_dir)
+        files, problem = _read_reply(reply.get("content") or "", current, usage)
+        if files is not None:
+            current = files
+            problem = _check_files(files)
+            if not problem:
+                for name, content in files.items():
+                    (run_dir / name).write_text(content)
+                problem = dry_run(run_dir)
         log.write({"type": "generate", "attempt": attempt + 1, "problem": problem})
         if not problem:
             print("generate: world passed the dry run", flush=True)
             return True
         print(f"generate: problem: {problem.strip().splitlines()[-1][:200]}", flush=True)
-        messages = [
-            *base_messages,
-            reply,
-            {
-                "role": "user",
-                "content": f"Running it failed:\n\n{problem}\n\n"
-                "Fix it. Reply with both files again in full, in the same tags.",
-            },
-        ]
+        if current is None:  # nothing usable yet: ask for both files again
+            messages = [
+                *base_messages,
+                reply,
+                {"role": "user", "content": f"That failed:\n\n{problem}\n\n{FIX_IN_FULL}"},
+            ]
+        else:  # show the files as they are now and ask only for the changes
+            shown = "\n".join(f"<{name}>\n{text}</{name}>" for name, text in current.items())
+            messages = [
+                *base_messages,
+                {"role": "assistant", "content": shown},
+                {"role": "user", "content": f"That failed:\n\n{problem}\n\n{FIX_BY_EDITS}"},
+            ]
     return False
 
 
@@ -188,18 +223,49 @@ def _arg_sets(schema: Any, ids: list[str], date: str) -> list[dict[str, Any]]:
     return list({json.dumps(a, sort_keys=True): a for a in sets}.values())
 
 
-def _write_files(text: str, run_dir: Path, usage: dict[str, Any]) -> str | None:
+def _read_reply(
+    text: str, current: dict[str, str] | None, usage: dict[str, Any]
+) -> tuple[dict[str, str] | None, str | None]:
+    """The files after this reply: full files in their tags replace the current ones, then
+    edits apply in order. (files, None), or (None, why the reply could not be used)."""
     if usage.get("finish_reason") == "length":
-        return "The reply was cut off at the output limit. Make world.py shorter."
-    files = {}
-    for name in ("world.py", "prompts.json"):
+        shorter = "Make world.py shorter." if current is None else "Send fewer, smaller edits."
+        return None, f"The reply was cut off at the output limit. {shorter}"
+    files = dict(current or {})
+    replaced = False
+    for name in FILES:
         matches = list(
             re.finditer(rf"<{re.escape(name)}>\s*(.*?)\s*</{re.escape(name)}>", text, re.S)
         )
-        if not matches:
-            return f"The reply has no <{name}>...</{name}> block."
-        raw = matches[-1].group(1).strip()
-        files[name] = re.sub(r"^```[^\n]*\n|\n\s*```$", "", raw).strip() + "\n"
+        if matches:
+            files[name] = FENCE.sub("", matches[-1].group(1).strip()).strip() + "\n"
+            replaced = True
+    edits = list(EDIT.finditer(text))
+    for number, edit in enumerate(edits, 1):
+        name = edit.group(1)
+        find, replace = FENCE.sub("", edit.group(2)), FENCE.sub("", edit.group(3))
+        if name not in files:
+            return None, f'Edit {number} is for file="{name}"; use world.py or prompts.json.'
+        if not find.strip():
+            return None, f"Edit {number} for {name} has an empty <find>."
+        found = files[name].count(find)
+        if found != 1:
+            where = "is not in" if not found else f"matches {found} places in"
+            return None, (
+                f"Edit {number} for {name}: its <find> text {where} the current file, so no "
+                "edits were applied. Copy <find> exactly from the file, with enough lines to "
+                f"match one place only:\n\n{find[:500]}"
+            )
+        files[name] = files[name].replace(find, replace)
+    for name in FILES:
+        if name not in files:
+            return None, f"The reply has no <{name}>...</{name}> block."
+    if current is not None and not replaced and not edits:
+        return None, "The reply has no <edit> blocks and no files, so nothing changed."
+    return files, None
+
+
+def _check_files(files: dict[str, str]) -> str | None:
     try:
         parsed = json.loads(files["prompts.json"])
         if not isinstance(parsed, dict) or not isinstance(parsed.get("agents"), dict):
@@ -220,12 +286,7 @@ def _write_files(text: str, run_dir: Path, usage: dict[str, Any]) -> str | None:
                 return f"prompts.json: agent {agent_id!r} 'notes' must be a list."
     except (ValueError, KeyError, AttributeError, TypeError) as error:
         return f'prompts.json is not {{"agents": {{id: {{...}}}}}}: {error}'
-    problem = _broad_except(files["world.py"])
-    if problem:
-        return problem
-    for name, content in files.items():
-        (run_dir / name).write_text(content)
-    return None
+    return _broad_except(files["world.py"])
 
 
 def _broad_except(source: str) -> str | None:

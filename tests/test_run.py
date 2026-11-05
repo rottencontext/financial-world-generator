@@ -153,6 +153,56 @@ def test_generate_sends_crash_back_for_a_fix(tmp_path: Path) -> None:
     assert "boom" in events[0]["problem"] and events[1]["problem"] is None
 
 
+BOOM = "def next_day():\n    raise RuntimeError('boom')\n\ndef _old():"
+
+
+def edit(find: str, replace: str, file: str = "world.py") -> str:
+    body = f"<find>\n{find}\n</find>\n<replace>\n{replace}\n</replace>"
+    return f'<edit file="{file}">\n{body}\n</edit>'
+
+
+def recording_llm(replies: list[str]) -> tuple[Any, list[list[Any]]]:
+    seen: list[list[Any]] = []
+
+    def llm(model: str, messages: list[Any], tools: Any = None, **_: Any) -> Any:
+        seen.append(messages)
+        return {"role": "assistant", "content": replies.pop(0)}, {"cost": 0.01}
+
+    return llm, seen
+
+
+def test_generate_fixes_a_crash_with_an_edit(tmp_path: Path) -> None:
+    broken = generated_reply()["content"].replace("def next_day():", BOOM)
+    llm, seen = recording_llm([broken, edit(BOOM, "def next_day():")])
+    log = RunLog(tmp_path / "log.jsonl")
+    assert generate("A tiny company.", tmp_path, "m", log, llm=llm)
+    assert (tmp_path / "world.py").read_text() == WORLD.strip() + "\n"
+    shown, ask = seen[1][-2:]
+    assert shown["role"] == "assistant" and BOOM in shown["content"]
+    assert "boom" in ask["content"] and '<edit file="world.py">' in ask["content"]
+
+
+def test_generate_reports_an_edit_that_does_not_match(tmp_path: Path) -> None:
+    broken = generated_reply()["content"].replace("def next_day():", BOOM)
+    missing = edit("def nope():", "def next_day():")
+    llm, seen = recording_llm([broken, missing, edit(BOOM, "def next_day():")])
+    log = RunLog(tmp_path / "log.jsonl")
+    assert generate("A tiny company.", tmp_path, "m", log, llm=llm)
+    events = [json.loads(line) for line in (tmp_path / "log.jsonl").read_text().splitlines()]
+    assert "is not in the current file" in events[1]["problem"]
+    assert BOOM in seen[2][-2]["content"]  # the failed edit changed nothing
+    assert events[2]["problem"] is None
+
+
+def test_generate_fixes_a_broad_except_with_an_edit(tmp_path: Path) -> None:
+    good = "except (ValueError, InvalidOperation, TypeError):"
+    hidden = generated_reply()["content"].replace(good, "except Exception:")
+    llm, _ = recording_llm([hidden, edit("except Exception:", good)])
+    log = RunLog(tmp_path / "log.jsonl")
+    assert generate("A tiny company.", tmp_path, "m", log, llm=llm)
+    assert good in (tmp_path / "world.py").read_text()
+
+
 def test_generate_catches_non_dict_prompts_json(tmp_path: Path) -> None:
     bad_json = {
         "role": "assistant",
