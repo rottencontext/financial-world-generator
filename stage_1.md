@@ -28,7 +28,7 @@ An LLM writes the world in two parts so code and agent prompts can be updated se
   - **Institutions:** each keeps its own ledger, rules and contracts.
   - **The first day:** balances, contracts in force, money in transit, open bills.
 - **`prompts.json` (the agents):**
-  - **Actors:** each entity that makes judgment calls acts through an agent (a role, habits, and a starting notepad). Judgment is an agent (holding a suspicious payout, chasing a late invoice, paying rent late, swiping a company card on a weekend trip).
+  - **Actors:** each entity that makes judgment calls acts through an agent (a role, habits, starting plans, and dated notes). Judgment is an agent (holding a suspicious payout, chasing a late invoice, paying rent late, swiping a company card on a weekend trip).
 
 ## Simulate (learning inside a run)
 
@@ -43,7 +43,7 @@ Day by day, from the first day to the last:
 To help agents adapt from day to day without blowing up the prompt:
 
 - **Clear rejection reasons, not scores:** when a tool call fails or is delayed, the world's code returns a plain reason with the relevant numbers (for example, that checking holds `$14,200`, payroll needs `$25,000`, and `$1,000,000` sits in Treasury with a 1-business-day transfer delay) so the agent can adjust and try again.
-- **A short notepad per agent:** instead of seeing the full call log for the whole year, each agent keeps a short notepad of active plans and unresolved items that it updates at the end of its turn, alongside the last few days of its own tool calls and rejections.
+- **Structured memory as a tool (plans apart from dated notes):** instead of overwriting a free-text notepad with its end-of-day reply, each agent uses a built-in `memory` tool to manage dated plans (which stay until marked done) separately from notes (which are automatically stamped with the date they were recorded). The end-of-turn reply goes only into the log.
 - **A daily status header:** each turn shows the agent's current balances, open bills, incoming messages, and how long it has been since key events (such as trips, experiments, or disputes) so agents pace one-off stories naturally across the year instead of firing them all in the first week.
 
 ## Judge

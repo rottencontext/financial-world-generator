@@ -20,11 +20,18 @@ Every entity that acts in the economy is an agent in `prompts.json`:
     "<agent_id>": {
       "entity": "<entity id in world.py>",
       "prompt": "<who they are, their contracts and relationships, their size/spending/pricing habits, and what calendar/state triggers they watch>",
-      "notepad": "<their active plans, scheduled dates, and open items on the first day>"
+      "plans": [
+        {"due": "YYYY-MM-DD", "task": "<dated plan or scheduled commitment that stays until marked done>"}
+      ],
+      "notes": [
+        "<starting observation or open context on the first day; automatically stamped with the start date>"
+      ]
     }
   }
 }
 ```
+
+The runner gives every agent a built-in `memory` tool (`add_plan`, `update_plan`, `done_plan`, `add_note`, `replace_note`, `remove_note`) to manage its `plans` and dated `notes` deliberately during its turn. Do not define a tool named `memory` in `world.py`.
 
 ## What `world.py` holds
 

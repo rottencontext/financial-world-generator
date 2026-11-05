@@ -66,7 +66,13 @@ def records():
 """
 
 PROMPTS = {
-    "agents": {"sam": {"entity": "company", "prompt": "You are Sam.", "notepad": "Fund payroll."}}
+    "agents": {
+        "sam": {
+            "entity": "company",
+            "prompt": "You are Sam.",
+            "plans": [{"due": "2021-01-01", "task": "Fund payroll."}],
+        }
+    }
 }
 
 
@@ -91,8 +97,22 @@ def tool_call(amount: str) -> dict[str, Any]:
     }
 
 
-def done(notepad: str) -> dict[str, Any]:
-    return {"role": "assistant", "content": notepad}
+def memory_call(**args: Any) -> dict[str, Any]:
+    return {
+        "role": "assistant",
+        "content": "Updating memory.",
+        "tool_calls": [
+            {
+                "id": "m1",
+                "type": "function",
+                "function": {"name": "memory", "arguments": json.dumps(args)},
+            }
+        ],
+    }
+
+
+def done(reply: str) -> dict[str, Any]:
+    return {"role": "assistant", "content": reply}
 
 
 def generated_reply() -> dict[str, Any]:
@@ -145,27 +165,94 @@ def test_generate_catches_non_dict_prompts_json(tmp_path: Path) -> None:
     assert "prompts.json" in events[0]["problem"] and events[1]["problem"] is None
 
 
+def test_dry_run_rejects_world_tool_named_memory(tmp_path: Path) -> None:
+    collision = WORLD.replace('"bank_transfer"', '"memory"')
+    write_world(tmp_path, collision)
+    problem = dry_run(tmp_path)
+    assert problem and "'memory' is reserved" in problem
+
+
 def test_simulate_logs_calls_rejections_and_records(tmp_path: Path) -> None:
     (tmp_path / "world.py").write_text(WORLD)
     (tmp_path / "prompts.json").write_text(json.dumps(PROMPTS))
     log = RunLog(tmp_path / "log.jsonl")
-    # Day 1 (Friday): move $60. Days 2-3: weekend, nobody acts. Day 4, the last: try $60 more.
-    replies = [tool_call("60.00"), done("Moved 60."), tool_call("60.00"), done("Short by 20.")]
+    # Day 1 (Friday): move $60. Days 2-3: weekend, nobody acts. Day 4, the last: try $60 more,
+    # then record a note via the memory tool. Plain end-of-turn replies go only to the log.
+    replies = [
+        tool_call("60.00"),
+        done("Moved 60."),
+        tool_call("60.00"),
+        memory_call(action="add_note", text="Short by 20."),
+        done("Done for Monday."),
+    ]
     summary = simulate(tmp_path, "m", log, llm=fake_llm(replies))
     log.close()
 
-    assert summary["status"] == "finished" and summary["calls"] == 2 and summary["turns"] == 2
+    assert summary["status"] == "finished" and summary["calls"] == 3 and summary["turns"] == 2
     assert summary["first_date"] == "2021-01-01" and summary["last_date"] == "2021-01-04"
     events = [json.loads(line) for line in (tmp_path / "log.jsonl").read_text().splitlines()]
     assert len([event for event in events if event["type"] == "day"]) == 4
     calls = [event for event in events if event["type"] == "call"]
     assert calls[0]["result"] == "Moved $60.00." and calls[0]["entity"] == "bank"
     assert calls[1]["result"] == "Rejected: ops holds $40.00, transfer needs $60.00."
+    assert calls[2]["tool"] == "memory" and calls[2]["entity"] == "runner"
+    assert calls[2]["result"] == "Added note n1 (2021-01-04): Short by 20."
     assert calls[0]["why"] == "Payroll needs funding."
+    turns = [event for event in events if event["type"] == "turn"]
+    assert turns[0]["reply"] == "Moved 60."
+    assert turns[1]["reply"] == "Done for Monday."
     records = json.loads((tmp_path / "records.json").read_text())
     assert records == {"bank": {"postings": [{"date": "2021-01-01", "amount": "60.00"}]}}
-    assert json.loads((tmp_path / "notepads.json").read_text()) == {"sam": "Short by 20."}
-    assert round(log.cost_usd, 2) == 0.04
+    # The dated plan p1 stayed across the quiet/failed turns because Sam never marked it done,
+    # and the note carries the date it was added (2021-01-04).
+    assert json.loads((tmp_path / "notepads.json").read_text()) == {
+        "sam": {
+            "plans": [{"id": "p1", "due": "2021-01-01", "task": "Fund payroll."}],
+            "notes": [{"id": "n1", "date": "2021-01-04", "text": "Short by 20."}],
+        }
+    }
+    assert round(log.cost_usd, 2) == 0.05
+
+
+def test_memory_keeps_plans_until_done_and_dates_every_note(tmp_path: Path) -> None:
+    write_world(tmp_path, WORLD)
+    log = RunLog(tmp_path / "log.jsonl")
+    captured_prompts: list[str] = []
+
+    script = [
+        # Day 1 (2021-01-01): add a note about a holiday/observation and a future plan for Jan 4;
+        # reply at end of turn without touching p1.
+        memory_call(action="add_note", text="2021-01-01: bank holiday observation"),
+        memory_call(action="add_plan", due="2021-01-04", text="Finish funding payroll."),
+        done("Quiet Friday reply that must not overwrite plans."),
+        # Day 4 (2021-01-04): mark p1 done, replace n1 with a new observation, and finish.
+        memory_call(action="done_plan", id="p1"),
+        memory_call(action="replace_note", id="n1", text="Ops balance checked."),
+        done("All caught up."),
+    ]
+
+    def capturing_llm(model: str, messages: list[Any], tools: Any = None, **_: Any) -> Any:
+        if len(messages) == 2:
+            captured_prompts.append(messages[1]["content"])
+        return script.pop(0), {"cost": 0.01}
+
+    simulate(tmp_path, "m", log, llm=capturing_llm)
+    log.close()
+
+    # On Day 4 (2021-01-04), the user prompt shows both plans (p1 and p2) marked [DUE]
+    # and the Day 1 note stamped with 2021-01-01 (without double-stamping the date).
+    day4_prompt = captured_prompts[1]
+    assert "- [p1] 2021-01-01 [DUE]: Fund payroll." in day4_prompt
+    assert "- [p2] 2021-01-04 [DUE]: Finish funding payroll." in day4_prompt
+    assert "- [n1] 2021-01-01: bank holiday observation" in day4_prompt
+    assert "Quiet Friday reply" not in day4_prompt
+
+    assert json.loads((tmp_path / "notepads.json").read_text()) == {
+        "sam": {
+            "plans": [{"id": "p2", "due": "2021-01-04", "task": "Finish funding payroll."}],
+            "notes": [{"id": "n1", "date": "2021-01-04", "text": "Ops balance checked."}],
+        }
+    }
 
 
 def test_simulate_saves_records_each_day_before_later_crash(tmp_path: Path) -> None:
@@ -178,7 +265,11 @@ def test_simulate_saves_records_each_day_before_later_crash(tmp_path: Path) -> N
     (tmp_path / "world.py").write_text(crashing_world)
     (tmp_path / "prompts.json").write_text(json.dumps(PROMPTS))
     log = RunLog(tmp_path / "log.jsonl")
-    replies = [tool_call("60.00"), done("Moved 60 on day 1.")]
+    replies = [
+        tool_call("60.00"),
+        memory_call(action="add_note", text="Moved 60 on day 1."),
+        done("Turn finished."),
+    ]
     summary = simulate(tmp_path, "m", log, llm=fake_llm(replies))
     log.close()
 
@@ -187,7 +278,12 @@ def test_simulate_saves_records_each_day_before_later_crash(tmp_path: Path) -> N
     assert summary["last_date"] == "2021-01-01"
     records = json.loads((tmp_path / "records.json").read_text())
     assert records == {"bank": {"postings": [{"date": "2021-01-01", "amount": "60.00"}]}}
-    assert json.loads((tmp_path / "notepads.json").read_text()) == {"sam": "Moved 60 on day 1."}
+    assert json.loads((tmp_path / "notepads.json").read_text()) == {
+        "sam": {
+            "plans": [{"id": "p1", "due": "2021-01-01", "task": "Fund payroll."}],
+            "notes": [{"id": "n1", "date": "2021-01-01", "text": "Moved 60 on day 1."}],
+        }
+    }
 
 
 FRAGILE_MONEY = WORLD.replace(

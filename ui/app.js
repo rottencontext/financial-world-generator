@@ -344,6 +344,23 @@ function isErrorResult(text) {
   return /^(error|rejected|failed|skipped)\b/i.test(String(text || "").trim());
 }
 
+function formatMemoryBox(mem) {
+  if (mem == null) return null;
+  if (typeof mem === "string") return mem || "(empty)";
+  if (typeof mem === "object") {
+    const plans = Array.isArray(mem.plans) ? mem.plans : [];
+    const notes = Array.isArray(mem.notes) ? mem.notes : [];
+    const planLines = plans.length
+      ? plans.map((p) => typeof p === "string" ? `- ${p}` : `- [${p.id || "plan"}] ${p.due || ""}: ${p.task || p.text || ""}`)
+      : ["(none)"];
+    const noteLines = notes.length
+      ? notes.map((n) => typeof n === "string" ? `- ${n}` : `- [${n.id || "note"}] ${n.date || ""}: ${n.text || ""}`)
+      : ["(none)"];
+    return `Plans:\n${planLines.join("\n")}\n\nNotes:\n${noteLines.join("\n")}`;
+  }
+  return String(mem);
+}
+
 function turnView(day, turn) {
   const entity = state.run.agents[turn.agent]?.entity;
   const c = agentColor(turn.agent);
@@ -364,6 +381,8 @@ function turnView(day, turn) {
     );
   });
   const callCount = turn.end?.calls ?? turn.calls.length;
+  const hasReply = turn.end && turn.end.reply != null;
+  const memoryText = turn.end?.memory ? formatMemoryBox(turn.end.memory) : (turn.end?.notepad || null);
   return h("div", { class: "turn", style: `--c: ${c}` },
     h("div", { class: "turn-head" },
       h("span", { class: "agent-name" }, turn.agent),
@@ -373,7 +392,8 @@ function turnView(day, turn) {
     calls.length ? h("ol", { class: "calls" }, calls) : null,
     turn.crashes.map((crash) => crashBox("World code crashed", crash.error)),
     turn.failed ? crashBox("Turn failed", turn.failed.error) : null,
-    turn.end ? h("div", { class: "notepad" }, h("span", { class: "label" }, "Notepad for tomorrow"), turn.end.notepad || "(empty)") : null,
+    hasReply && turn.end.reply ? h("div", { class: "notepad" }, h("span", { class: "label" }, "Turn reply"), turn.end.reply) : null,
+    turn.end ? h("div", { class: "notepad" }, h("span", { class: "label" }, hasReply ? "Memory (plans & dated notes)" : "Notepad for tomorrow"), memoryText || "(empty)") : null,
   );
 }
 
@@ -450,7 +470,10 @@ function viewAgents() {
     const turns = d.events.filter((e) => e.type === "turn" && e.agent === agent).length;
     const tools = new Map();
     for (const call of calls) tools.set(call.tool, (tools.get(call.tool) || 0) + 1);
-    const finalNotepad = d.notepads?.[agent];
+    const startingMemory = (info.plans != null || info.notes != null)
+      ? formatMemoryBox({ plans: info.plans, notes: info.notes })
+      : (info.notepad != null ? formatMemoryBox(info.notepad) : null);
+    const finalNotepad = formatMemoryBox(d.notepads?.[agent]);
     return h("article", { class: "card", style: `--c: ${agentColor(agent)}` },
       h("div", { class: "card-head" },
         h("span", { class: "dot" }),
@@ -467,8 +490,8 @@ function viewAgents() {
         h("div", { class: "tool-list" }, [...tools].map(([tool, n]) => h("span", { class: "tag mono" }, `${tool} ×${n}`))),
       ) : null,
       info.prompt ? h("div", null, h("span", { class: "block-label" }, "Prompt"), h("p", { class: "text" }, info.prompt)) : null,
-      info.notepad != null ? h("div", null, h("span", { class: "block-label" }, "Starting notepad"), h("p", { class: "text boxed" }, info.notepad || "(empty)")) : null,
-      finalNotepad != null ? h("div", null, h("span", { class: "block-label" }, "Last notepad"), h("p", { class: "text boxed" }, finalNotepad || "(empty)")) : null,
+      startingMemory != null ? h("div", null, h("span", { class: "block-label" }, "Starting memory"), h("p", { class: "text boxed" }, startingMemory)) : null,
+      finalNotepad != null ? h("div", null, h("span", { class: "block-label" }, "Last memory"), h("p", { class: "text boxed" }, finalNotepad)) : null,
     );
   });
   return h("div", { class: "agents" }, cards);

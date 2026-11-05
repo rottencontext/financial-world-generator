@@ -199,6 +199,10 @@ def _write_files(text: str, run_dir: Path, usage: dict[str, Any]) -> str | None:
                 or not agent["prompt"].strip()
             ):
                 return f"prompts.json: agent {agent_id!r} has no non-empty prompt string."
+            if "plans" in agent and not isinstance(agent["plans"], list):
+                return f"prompts.json: agent {agent_id!r} 'plans' must be a list."
+            if "notes" in agent and not isinstance(agent["notes"], list):
+                return f"prompts.json: agent {agent_id!r} 'notes' must be a list."
     except (ValueError, KeyError, AttributeError, TypeError) as error:
         return f'prompts.json is not {{"agents": {{id: {{...}}}}}}: {error}'
     for name, content in files.items():
@@ -214,6 +218,8 @@ def _check_tools(agent: str, tools: Any) -> str | None:
         if not isinstance(tool, dict) or not set(tool) >= TOOL_KEYS:
             return f"tools({agent!r}) returned a tool without {sorted(TOOL_KEYS)}: {tool!r}"
         name = tool["name"]
+        if name == "memory":
+            return f"tools({agent!r}): tool name 'memory' is reserved for the runner"
         if not isinstance(name, str) or not TOOL_NAME.match(name) or name in names:
             return f"tools({agent!r}): tool name {name!r} is invalid or repeated"
         if not isinstance(tool["entity"], str) or not isinstance(tool["description"], str):
