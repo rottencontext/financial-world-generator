@@ -1,5 +1,7 @@
 # Evaluations for `worldgen`
 
+> **Status: design only.** None of this is built. `truth()`, `eval.py`, `review.md`, `eval.json` and the `Expectations` blocks named below do not exist in the code yet. Paths are relative to the repo root.
+
 End Close reconciles records across a payment processor, a bank, and a company's own ledger, then works the timing, batching, and fee-netting differences. In `worldgen`, **every actor is an agent in `prompts.json`** — customers, merchants/studios, vendors, internal staff, and the institutions themselves (processors, banks, networks, accounting systems, payroll providers) — and **`world.py` is the shared state, contract registry, and ledger toolset** (`next_day()` only advances the calendar date).
 
 For generated worlds to be useful to End Close, an evaluation suite must answer four questions on every run:
@@ -233,7 +235,7 @@ To prevent overfitting the harness to Stripe Connect, the suite spans **5 prompt
 | `targets/payroll_fintech` *(to write)* | **Dev / Core End Close** | Outbound ACH credits (payroll/bill pay), settlement cutoffs, wires, FBO customer-funds account at a sponsor bank vs. internal sub-ledger | **Next** (closest to End Close's customers) |
 | `targets/property_manager` *(to write)* | **Dev / Multi-Rail** | Resident ACH debits, paper checks deposited in mobile/lockbox batches, security-deposit & rent trust accounts, management fees netted from monthly owner payouts | **Next** |
 | `targets/multi_processor_app` *(to write)* | **Held-Out Test** *(never tune on this)* | Consumer subscription app collecting via Stripe + PayPal + Apple/Google app-store monthly net payouts (after 15%/30% commission), FX conversion, cross-processor refunds | **Next (Held Out)** |
-| [`examples/bike_shop`](examples/bike_shop/) & [`targets/brewery_taproom`](targets/brewery_taproom/) | **Regression check** | Small worlds (POS batches, cash drawers, vendor terms, payroll) to ensure harness changes hold across simple and complex businesses | **Done** (add `Expectations`) |
+| [`targets/bike_shop`](../targets/bike_shop/) & [`targets/brewery_taproom`](../targets/brewery_taproom/) | **Regression check** | Small worlds (POS batches, cash drawers, vendor terms, payroll) to ensure harness changes hold across simple and complex businesses | **Done** (add `Expectations`) |
 
 ---
 

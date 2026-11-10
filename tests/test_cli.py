@@ -35,7 +35,7 @@ def invoke(tmp_path: Path, *options: str) -> dict[str, Any]:
     prompt = tmp_path / "PROMPT.md"
     prompt.write_text("A tiny company.")
     out = tmp_path / "run"
-    result = CliRunner().invoke(cli.app, [str(prompt), "--out", str(out), *options])
+    result = CliRunner().invoke(cli.app, ["run", str(prompt), "--out", str(out), *options])
     assert result.exit_code == 0, result.output
     summary: dict[str, Any] = json.loads((out / "run.json").read_text())
     return summary

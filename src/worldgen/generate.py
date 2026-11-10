@@ -60,7 +60,7 @@ def generate(
     run_dir: Path,
     model: str,
     log: RunLog,
-    fix_rounds: int = 3,
+    fix_rounds: int = 5,
     llm: Callable[..., tuple[Message, dict[str, Any]]] = chat,
 ) -> bool:
     """Write world.py and prompts.json into run_dir. Return whether they passed the dry run."""

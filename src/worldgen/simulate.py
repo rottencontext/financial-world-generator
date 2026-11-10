@@ -1,4 +1,5 @@
-"""The day loop: each day the agents that wake act through the world's tools, then the clock advances."""
+"""The day loop: each day the agents that wake act through the world's tools, then the clock
+advances."""
 
 import copy
 import json
@@ -34,7 +35,8 @@ MEMORY_TOOL = {
         "name": "memory",
         "description": (
             "[runner] Manage your persistent plans and dated notes. "
-            "A plan stays until you mark it done. Every note is automatically stamped with today's date."
+            "A plan stays until you mark it done. "
+            "Every note is automatically stamped with today's date."
         ),
         "parameters": {
             "type": "object",
@@ -53,15 +55,23 @@ MEMORY_TOOL = {
                 },
                 "id": {
                     "type": "string",
-                    "description": "Plan id (e.g. 'p1') or note id (e.g. 'n1') for update_plan, done_plan, replace_note or remove_note.",
+                    "description": (
+                        "Plan id (e.g. 'p1') or note id (e.g. 'n1') for update_plan, done_plan, "
+                        "replace_note or remove_note."
+                    ),
                 },
                 "due": {
                     "type": "string",
-                    "description": "Plan date as YYYY-MM-DD (required for add_plan, optional for update_plan).",
+                    "description": (
+                        "Plan date as YYYY-MM-DD (required for add_plan, optional for update_plan)."
+                    ),
                 },
                 "text": {
                     "type": "string",
-                    "description": "Plan task or note text (required for add_plan, add_note and replace_note; optional for update_plan).",
+                    "description": (
+                        "Plan task or note text (required for add_plan, add_note and "
+                        "replace_note; optional for update_plan)."
+                    ),
                 },
             },
             "required": ["action"],
@@ -87,7 +97,9 @@ def init_memory(
             else:
                 line = str(item).strip()
                 match = DATED_LINE.match(line)
-                due, task = (match.group(1), match.group(2).strip()) if match else (start_date, line)
+                due, task = (
+                    (match.group(1), match.group(2).strip()) if match else (start_date, line)
+                )
             if task:
                 plans.append({"id": f"p{len(plans) + 1}", "due": due, "task": task})
 
@@ -104,16 +116,6 @@ def init_memory(
                 )
             if text:
                 notes.append({"id": f"n{len(notes) + 1}", "date": note_date, "text": text})
-
-    # Legacy fallback: seed non-empty lines from "notepad" as initial plans on start_date.
-    if not plans and not notes and isinstance(agent_spec.get("notepad"), str):
-        for raw_line in agent_spec["notepad"].splitlines():
-            line = re.sub(r"^[-*•]\s+", "", raw_line.strip())
-            if not line:
-                continue
-            match = DATED_LINE.match(line)
-            due, task = (match.group(1), match.group(2).strip()) if match else (start_date, line)
-            plans.append({"id": f"p{len(plans) + 1}", "due": due, "task": task})
 
     return {"plans": plans, "notes": notes}, {"p": len(plans) + 1, "n": len(notes) + 1}
 
@@ -297,7 +299,8 @@ def simulate(
             {
                 "role": "user",
                 "content": f"Today is {date}.\n\n## Status\n{status}\n\n"
-                f"## Your plans (stay until you mark them done)\n{format_plans(mem['plans'], date)}\n\n"
+                "## Your plans (stay until you mark them done)\n"
+                f"{format_plans(mem['plans'], date)}\n\n"
                 f"## Your notes (dated observations)\n{format_notes(mem['notes'])}\n\n"
                 f"## Your calls in the last {RECENT_DAYS} days\n{history}",
             },
@@ -399,7 +402,7 @@ def simulate(
                     list(pool.map(safe_turn, acting, [date] * len(acting)))
             summary["last_date"] = date
             save_records()
-            (run_dir / "notepads.json").write_text(json.dumps(memories, indent=1))
+            (run_dir / "memory.json").write_text(json.dumps(memories, indent=1))
             date = world.call("next_day")
             if date is None:
                 break
@@ -415,5 +418,5 @@ def simulate(
         if not memories:
             for agent_id, agent_spec in agents.items():
                 memories[agent_id], counters[agent_id] = init_memory(agent_spec, "1970-01-01")
-        (run_dir / "notepads.json").write_text(json.dumps(memories, indent=1))
+        (run_dir / "memory.json").write_text(json.dumps(memories, indent=1))
     return {**summary, **counts}

@@ -112,7 +112,7 @@ def load_run(folder: Path, worlds: Path = WORLDS, root: Path = ROOT) -> dict[str
         "run": summary,
         "prompts": read_json(folder / "prompts.json"),
         "records": read_json(folder / "records.json"),
-        "notepads": read_json(folder / "notepads.json"),
+        "memory": read_json(folder / "memory.json"),
         "events": read_events(folder / "log.jsonl"),
         "world_py": world_py.read_text(errors="replace")[:MAX_TEXT] if world_py.exists() else None,
         "stderr": stderr.read_text(errors="replace")[-MAX_TEXT:] if stderr.exists() else None,

@@ -21,11 +21,9 @@ htmlcov/
 .env.*
 !.env.example
 
-# Generated worlds: story trees, runs and logs
+# Generated worlds and console logs of runs
 worlds/
-
-# Business prompts modeled on public filings, kept local
-targets/
+logs/
 
 # Local agent tooling (skills installed per machine with `npx skills add`)
 .agents/

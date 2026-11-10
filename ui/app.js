@@ -157,7 +157,6 @@ function prepare(data) {
     for (const agent of [...day.agents, ...day.turns.keys()]) if (!ids.includes(agent)) ids.push(agent);
   }
   data.agentIds = ids;
-  data.legacy = data.files.some((file) => file.name === "tree.json" || file.name === "story.md");
   return data;
 }
 
@@ -231,7 +230,7 @@ async function selectRun(id, { keepView = false } = {}) {
   }
   const ids = visibleTabs().map((tab) => tab.id);
   if (!ids.includes(state.tab)) {
-    state.tab = state.run.legacy ? "files" : ["days", "generation"].find((id) => ids.includes(id)) ?? ids[0];
+    state.tab = ["days", "generation"].find((id) => ids.includes(id)) ?? ids[0];
   }
   if (state.agent && !state.run.agentIds.includes(state.agent)) state.agent = null;
   const y = window.scrollY;
@@ -293,11 +292,10 @@ function renderSummary() {
     h("div", { class: "summary" },
       h("div", { class: "title-row" },
         h("h1", null, h("span", { class: "world" }, `${world} / `), rest.join("/") || "(top)"),
-        d.legacy ? h("span", { class: "pill" }, "narrator run") : pill(status),
+        pill(status),
       ),
       status && !["finished", "running"].includes(status) ? h("p", { class: "status-text" }, status) : null,
-      d.legacy ? h("p", { class: "status-text" }, "An older narrator run: its files are shown as they are.") : null,
-      !d.run && !d.live && !d.legacy ? h("p", { class: "status-text" }, "No run.json: this run stopped before writing its summary.") : null,
+      !d.run && !d.live ? h("p", { class: "status-text" }, "No run.json: this run stopped before writing its summary.") : null,
       h("dl", { class: "facts" }, facts),
     ),
   );
@@ -473,7 +471,7 @@ function viewAgents() {
     const startingMemory = (info.plans != null || info.notes != null)
       ? formatMemoryBox({ plans: info.plans, notes: info.notes })
       : (info.notepad != null ? formatMemoryBox(info.notepad) : null);
-    const finalNotepad = formatMemoryBox(d.notepads?.[agent]);
+    const finalNotepad = formatMemoryBox(d.memory?.[agent]);
     return h("article", { class: "card", style: `--c: ${agentColor(agent)}` },
       h("div", { class: "card-head" },
         h("span", { class: "dot" }),

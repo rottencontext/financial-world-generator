@@ -1,4 +1,4 @@
-"""worldgen PROMPT_FILE: generate a world from the prompt and simulate the prompt's time range."""
+"""worldgen run PROMPT_FILE: generate a world from the prompt and simulate its time range."""
 
 import json
 from collections.abc import Callable
@@ -41,6 +41,11 @@ def run_name(world_model: str, agent_model: str, now: datetime) -> str:
     return f"{now:%Y%m%d-%H%M%S}_world-{world}_agents-{agents}"
 
 
+@app.callback()
+def main() -> None:
+    """A financial world generator."""
+
+
 @app.command()
 def run(
     prompt_file: Path,
@@ -69,6 +74,7 @@ def run(
     ] = None,
     fix_rounds: Annotated[int, typer.Option(help="Times a crashing world goes back.")] = 5,
 ) -> None:
+    """Generate a world from PROMPT_FILE and simulate the time range the prompt names."""
     world_model = world_model or DEFAULT_MODELS[world_backend][0]
     agent_model = agent_model or DEFAULT_MODELS[agent_backend][1]
     prompt_text = prompt_file.read_text()

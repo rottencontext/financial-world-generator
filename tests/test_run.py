@@ -255,7 +255,7 @@ def test_simulate_logs_calls_rejections_and_records(tmp_path: Path) -> None:
     assert records == {"bank": {"postings": [{"date": "2021-01-01", "amount": "60.00"}]}}
     # The dated plan p1 stayed across the quiet/failed turns because Sam never marked it done,
     # and the note carries the date it was added (2021-01-04).
-    assert json.loads((tmp_path / "notepads.json").read_text()) == {
+    assert json.loads((tmp_path / "memory.json").read_text()) == {
         "sam": {
             "plans": [{"id": "p1", "due": "2021-01-01", "task": "Fund payroll."}],
             "notes": [{"id": "n1", "date": "2021-01-04", "text": "Short by 20."}],
@@ -297,7 +297,7 @@ def test_memory_keeps_plans_until_done_and_dates_every_note(tmp_path: Path) -> N
     assert "- [n1] 2021-01-01: bank holiday observation" in day4_prompt
     assert "Quiet Friday reply" not in day4_prompt
 
-    assert json.loads((tmp_path / "notepads.json").read_text()) == {
+    assert json.loads((tmp_path / "memory.json").read_text()) == {
         "sam": {
             "plans": [{"id": "p2", "due": "2021-01-04", "task": "Finish funding payroll."}],
             "notes": [{"id": "n1", "date": "2021-01-04", "text": "Ops balance checked."}],
@@ -328,7 +328,7 @@ def test_simulate_saves_records_each_day_before_later_crash(tmp_path: Path) -> N
     assert summary["last_date"] == "2021-01-01"
     records = json.loads((tmp_path / "records.json").read_text())
     assert records == {"bank": {"postings": [{"date": "2021-01-01", "amount": "60.00"}]}}
-    assert json.loads((tmp_path / "notepads.json").read_text()) == {
+    assert json.loads((tmp_path / "memory.json").read_text()) == {
         "sam": {
             "plans": [{"id": "p1", "due": "2021-01-01", "task": "Fund payroll."}],
             "notes": [{"id": "n1", "date": "2021-01-01", "text": "Moved 60 on day 1."}],

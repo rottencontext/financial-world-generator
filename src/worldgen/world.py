@@ -1,4 +1,5 @@
-"""The runner's handle on a generated world: world.py running in a sandboxed process."""
+"""The runner's handle on a generated world: world.py running in its own process, sandboxed on
+macOS."""
 
 import json
 import os
@@ -35,6 +36,13 @@ class World:
         command = [sys.executable, "-I", "-B", str(HOST), str(run_dir / "world.py")]
         if shutil.which("sandbox-exec"):
             command = ["sandbox-exec", "-p", PROFILE.format(run_dir=run_dir), *command]
+        else:
+            print(
+                "warning: sandbox-exec not found, so world.py runs without a sandbox. "
+                "It still gets no API keys.",
+                file=sys.stderr,
+                flush=True,
+            )
         self._stderr = (run_dir / "world_stderr.log").open("a")
         try:
             self._process = subprocess.Popen(

@@ -1,6 +1,7 @@
 """Runs a generated world.py in its own process and answers the runner over stdin/stdout.
 
-The runner starts this file inside a sandbox. One JSON request per line comes in,
+The runner starts this file in its own process, inside a sandbox on macOS. One JSON request per
+line comes in,
 {"op": name, "args": [...]}, and one JSON reply per line goes out, {"ok": value} or
 {"error": traceback}. Anything the world prints goes to stderr.
 """
